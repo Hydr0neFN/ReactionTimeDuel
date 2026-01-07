@@ -33,7 +33,7 @@
 #define DISP_COUNTDOWN      0x33  // DATA_LOW = seconds (3, 2, 1)
 #define DISP_GO             0x34  // Show "GO!"
 #define DISP_REACTION_MODE  0x35  // Reaction mode selected
-#define DISP_SHAKE_MODE     0x36  // DATA_LOW = shake target (10, 20, 30)
+#define DISP_SHAKE_MODE     0x36  // DATA_LOW = shake target (10, 15, 20)
 #define DISP_TIME_P1        0x37  // Player 1 time: DATA_HIGH<<8 | DATA_LOW = ms (0xFFFF = timeout)
 #define DISP_TIME_P2        0x38  // Player 2 time
 #define DISP_TIME_P3        0x39  // Player 3 time
@@ -188,7 +188,7 @@ void loop() {
         
       case DISP_SHAKE_MODE:
         // Show "Shake Mode" + target
-        // dataLow = target (10, 20, or 30)
+        // dataLow = target (10, 15, or 20)
         break;
         
       case DISP_TIME_P1:

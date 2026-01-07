@@ -38,7 +38,8 @@
 #define PIN_I2S_DOUT      23    // DINS to MAX98357A
 #define PIN_I2S_BCLK      26    // BCLK
 #define PIN_I2S_LRC       25    // LRC
-// SD Card pins (HSPI to avoid conflict with CC1/CC2 on GPIO18/19)
+// SD Card pins (optional - current build uses SPIFFS instead)
+// If SD needed: HSPI pins to avoid conflict with CC1/CC2 on GPIO18/19
 #define PIN_SD_CS         5     // Chip Select
 #define PIN_SD_SCK        14    // HSPI CLK
 #define PIN_SD_MISO       12    // HSPI MISO
@@ -91,7 +92,7 @@
 #define DISP_COUNTDOWN      0x33  // Countdown (DATA_LOW = seconds)
 #define DISP_GO             0x34
 #define DISP_REACTION_MODE  0x35
-#define DISP_SHAKE_MODE     0x36  // DATA_LOW = target (10/20/30)
+#define DISP_SHAKE_MODE     0x36  // DATA_LOW = target (10/15/20)
 #define DISP_TIME_P1        0x37  // Player 1 time (DATA_HIGH=time>>8, DATA_LOW=time&0xFF, 0xFFFF=timeout)
 #define DISP_TIME_P2        0x38  // Player 2 time
 #define DISP_TIME_P3        0x39  // Player 3 time
@@ -170,10 +171,10 @@
 #define DELAY_REACT_MED       15000
 #define DELAY_REACT_LONG      20000
 
-// Shake targets
+// Shake targets (must match available audio)
 #define SHAKE_TARGET_LOW      10
-#define SHAKE_TARGET_MED      20
-#define SHAKE_TARGET_HIGH     30
+#define SHAKE_TARGET_MED      15
+#define SHAKE_TARGET_HIGH     20
 
 // =============================================================================
 // CRC8 FUNCTION

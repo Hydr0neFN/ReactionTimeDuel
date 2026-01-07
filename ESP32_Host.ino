@@ -56,7 +56,7 @@
 
 // Delays and targets
 const uint16_t REACT_DELAYS[] = {10000, 15000, 20000};
-const uint8_t SHAKE_TARGETS[] = {10, 20, 30};
+const uint8_t SHAKE_TARGETS[] = {10, 15, 20};  // Must match available audio: SND_NUM_10, SND_NUM_15, SND_NUM_20
 
 // =============================================================================
 // GAME STATE
@@ -538,19 +538,19 @@ void handleCountdownState() {
     
     if (count == 0) {
       delay(1000);
-      // Send game start to all joysticks
+      // Send game start to all joysticks (puts them in WAITING_GO state)
       uint8_t param = (gameMode == MODE_SHAKE) ? SHAKE_TARGETS[targetIndex] : 0;
       sendPacket(ID_BROADCAST, CMD_GAME_START, gameMode, param);
       
-      // Send GO via UART + hardware signal
-      sendPacket(ID_BROADCAST, CMD_VIBRATE, 0, 0xFF);
-      sendPacket(ID_DISPLAY, DISP_GO, 0, 0);
-      pulseGO();  // Hardware timing sync!
-      
-      // Audio: Beep for GO!
-      audio.queueSound(SND_BEEP);
-      
-      Serial.println(F("GO!"));
+      if (gameMode == MODE_SHAKE) {
+        // SHAKE MODE: Start timer immediately after countdown
+        sendPacket(ID_BROADCAST, CMD_VIBRATE, 0, 0xFF);
+        sendPacket(ID_DISPLAY, DISP_GO, 0, 0);
+        pulseGO();
+        audio.queueSound(SND_BEEP);
+        Serial.println(F("GO! (Shake mode)"));
+      }
+      // REACTION MODE: Timer starts when visual signal appears (in handleReactionState)
       
       gameState = (gameMode == MODE_SHAKE) ? GAME_SHAKE : GAME_REACTION;
       stateStartTime = 0;
@@ -567,20 +567,28 @@ void handleReactionState() {
     signalSent = false;
     goTime = 0;
     neoMode = NEO_RANDOM_FAST;
+    Serial.println(F("Reaction mode: waiting for random delay..."));
   }
   
-  // Wait for random delay, then signal
+  // Wait for random delay, then send GO signal + visual cue
   if (!signalSent && (millis() - stateStartTime) >= REACT_DELAYS[delayIndex]) {
     goTime = millis();
     signalSent = true;
+    
+    // NOW send timing signal to joysticks (this is when their timer starts!)
+    sendPacket(ID_BROADCAST, CMD_VIBRATE, 0, 0xFF);
+    sendPacket(ID_DISPLAY, DISP_GO, 0, 0);
+    pulseGO();  // Hardware timing sync!
+    audio.queueSound(SND_BEEP);
+    
+    // Visual cue: green LEDs
     neoMode = NEO_FIXED_COLOR;
     neoColor = pixels.Color(0, 255, 0);
     
-    // GO signal already sent in countdown, this is visual only
-    Serial.println(F("SIGNAL!"));
+    Serial.println(F("GO! (Reaction mode)"));
   }
   
-  // Timeout
+  // Timeout after signal
   if (signalSent && (millis() - goTime) > TIMEOUT_REACTION) {
     gameState = GAME_COLLECT_RESULTS;
     stateStartTime = 0;
@@ -732,7 +740,7 @@ void setup() {
   pixels.setBrightness(NEOPIXEL_BRIGHTNESS);
   pixels.show();
   
-  // Audio system (HSPI for SD to avoid CC1/CC2 conflict)
+  // Audio system (uses SPIFFS - internal flash, no SD card needed)
   if (audio.begin(0.5)) {
     Serial.println(F("Audio system ready"));
     audio.queueSound(SND_GET_READY);  // Startup sound
@@ -756,7 +764,6 @@ void setup() {
   Serial.printf("UART: TX=%d, RX=%d\n", PIN_UART_TX, PIN_UART_RX);
   Serial.printf("Signals: GO=%d, RST=%d\n", PIN_GO, PIN_RST);
   Serial.printf("NeoPixel: %d (%d LEDs)\n", PIN_NEOPIXEL, NEOPIXEL_COUNT);
-}
 }
 
 // =============================================================================

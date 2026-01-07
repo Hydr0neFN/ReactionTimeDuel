@@ -285,6 +285,7 @@ void handleCommand() {
       shakeTarget = dataLow;
       shakeCount = 0;
       resultTime = 0;
+      gameStartTime = 0;  // Reset so hardware GO backup works on subsequent rounds
       currentState = STATE_WAITING_GO;
       
       // Initialize MPU if shake mode

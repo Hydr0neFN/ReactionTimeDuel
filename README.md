@@ -145,7 +145,7 @@
 | `DISP_COUNTDOWN` | `0x33` | — | seconds | Countdown |
 | `DISP_GO` | `0x34` | — | — | Show "GO!" |
 | `DISP_REACTION_MODE` | `0x35` | — | — | Reaction mode |
-| `DISP_SHAKE_MODE` | `0x36` | — | target | Shake mode |
+| `DISP_SHAKE_MODE` | `0x36` | — | target | Shake mode (10/15/20) |
 | `DISP_TIME_P1` | `0x37` | time>>8 | time&0xFF | P1 time* |
 | `DISP_TIME_P2` | `0x38` | time>>8 | time&0xFF | P2 time* |
 | `DISP_TIME_P3` | `0x39` | time>>8 | time&0xFF | P3 time* |
@@ -199,8 +199,8 @@ stateDiagram-v2
 |:------|:------------|
 | 👋 **ASSIGN_IDS** | Boot → "Press Player 1-4" (15s each). Touch to skip if 2+ joined |
 | ⏰ **COUNTDOWN** | 3-2-1 with blinks + vibration |
-| ⚡ **REACTION** | Press on GO! |
-| 🔄 **SHAKE** | Shake to target count |
+| ⚡ **REACTION** | Random 10-20s delay, then GO signal + green LEDs. Press immediately! |
+| 🔄 **SHAKE** | Shake to target count (10/15/20) |
 | 📊 **RESULTS** | Show times + scores |
 | 🏆 **FINAL** | Announce winner |
 | 🌈 **IDLE** | After game ends, touch to restart |
