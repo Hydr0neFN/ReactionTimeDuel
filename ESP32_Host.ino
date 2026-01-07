@@ -81,7 +81,8 @@ enum NeoMode : uint8_t {
   NEO_STATUS,
   NEO_RANDOM_FAST,
   NEO_FIXED_COLOR,
-  NEO_COUNTDOWN_BLINK
+  NEO_COUNTDOWN_BLINK,
+  NEO_JOIN_TIMER       // Ring 5 (center) shows green timer during join
 };
 
 // =============================================================================
@@ -102,6 +103,7 @@ AudioManager audio;
 
 volatile NeoMode neoMode = NEO_OFF;
 volatile uint32_t neoColor = 0;
+volatile uint8_t timerProgress = 0;  // 0-12 LEDs for ring 5 timer
 
 GameState gameState = GAME_IDLE;
 Player players[MAX_PLAYERS];
@@ -267,6 +269,28 @@ void animationTask(void *param) {
         pixels.show();
         break;
         
+      case NEO_JOIN_TIMER:
+        // Player rings show join status (green=joined, red=not joined)
+        for (uint8_t p = 0; p < MAX_PLAYERS; p++) {
+          uint8_t ring = (p < 2) ? p : (p + 1);  // 0,1,3,4
+          uint32_t color = players[p].joined ? 
+            pixels.Color(0, 255, 0) : pixels.Color(255, 0, 0);
+          setRingColor(ring, color);
+        }
+        // Ring 2 (center) = green timer countdown
+        {
+          uint8_t centerStart = 2 * LEDS_PER_RING;  // Ring 2 start
+          for (uint8_t i = 0; i < LEDS_PER_RING; i++) {
+            if (i < timerProgress) {
+              pixels.setPixelColor(centerStart + i, pixels.Color(0, 255, 0));
+            } else {
+              pixels.setPixelColor(centerStart + i, pixels.Color(30, 30, 30));  // Dim
+            }
+          }
+        }
+        pixels.show();
+        break;
+        
       case NEO_RANDOM_FAST:
         if (now - lastUpdate > 100) {
           lastUpdate = now;
@@ -388,6 +412,8 @@ void handleAssignIDsState() {
     stateStartTime = millis();
     promptTime = 0;
     waiting = false;
+    neoMode = NEO_JOIN_TIMER;
+    timerProgress = LEDS_PER_RING;  // Start full
     Serial.println(F("State: ASSIGN_IDS"));
   }
   
@@ -413,8 +439,14 @@ void handleAssignIDsState() {
     audio.playPlayerNumber(currentAssignSlot + 1);
     
     promptTime = millis();
+    timerProgress = LEDS_PER_RING;  // Reset timer for this slot
     waiting = true;
   } else if (waiting) {
+    // Update timer progress (15s = 15000ms, 12 LEDs)
+    unsigned long elapsed = millis() - promptTime;
+    timerProgress = LEDS_PER_RING - (elapsed * LEDS_PER_RING / 15000);
+    if (timerProgress > LEDS_PER_RING) timerProgress = 0;  // Handle overflow
+    
     // Check for response
     if (receivePacket(0)) {
       if (rxPacket[3] == CMD_OK && rxPacket[5] == ID_STICK1 + currentAssignSlot) {
@@ -422,7 +454,6 @@ void handleAssignIDsState() {
         joinedCount++;
         Serial.printf("Player %d joined!\n", currentAssignSlot + 1);
         sendPacket(ID_DISPLAY, DISP_PLAYER_JOINED, 0, currentAssignSlot + 1);
-        neoMode = NEO_STATUS;
         
         // Audio: "Ready"
         audio.queueSound(SND_READY);

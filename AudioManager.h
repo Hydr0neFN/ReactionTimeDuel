@@ -1,5 +1,5 @@
 /*
- * AudioManager.h - Non-blocking Audio Queue System
+ * AudioManager.h - Non-blocking Audio Queue System (SPIFFS Version)
  * Reaction Time Duel
  * 
  * Features:
@@ -7,40 +7,34 @@
  *   - Non-blocking queue (plays in background)
  *   - Sequence chaining ("Player" + "1" + "Wins")
  *   - Thread-safe for dual-core ESP32
+ *   - Uses SPIFFS (internal flash) - no SD card needed!
  * 
- * Pin Assignments (corrected for schematic):
+ * Pin Assignments (from schematic):
  *   I2S DOUT: GPIO23 (DINS to MAX98357A)
  *   I2S BCLK: GPIO26
  *   I2S LRC:  GPIO25
- *   SD SCK:   GPIO14 (HSPI - avoids CC1/CC2 conflict!)
- *   SD MISO:  GPIO12 (HSPI)
- *   SD MOSI:  GPIO13 (HSPI)
- *   SD CS:    GPIO5
+ * 
+ * SPIFFS Setup:
+ *   1. Create 'data' folder in sketch directory
+ *   2. Place 1.mp3 to 28.mp3 in data folder
+ *   3. Upload via: Tools → ESP32 Sketch Data Upload
  */
 
 #ifndef AUDIO_MANAGER_H
 #define AUDIO_MANAGER_H
 
 #include <Arduino.h>
-#include <SD.h>
-#include <SPI.h>
-#include "AudioFileSourceSD.h"
+#include <SPIFFS.h>
+#include "AudioFileSourceSPIFFS.h"
 #include "AudioGeneratorMP3.h"
 #include "AudioOutputI2S.h"
 
 // =============================================================================
-// PIN DEFINITIONS (corrected from schematic)
+// PIN DEFINITIONS (from schematic - MAX98357A connection)
 // =============================================================================
-// I2S pins (per schematic - MAX98357A connection)
 #define AUDIO_I2S_DOUT    23    // DINS
 #define AUDIO_I2S_BCLK    26    // BCLK
 #define AUDIO_I2S_LRC     25    // LRC
-
-// SD Card pins (HSPI to avoid GPIO18/19 conflict with CC1/CC2)
-#define AUDIO_SD_CS       5
-#define AUDIO_SD_SCK      14    // HSPI CLK
-#define AUDIO_SD_MISO     12    // HSPI MISO  
-#define AUDIO_SD_MOSI     13    // HSPI MOSI
 
 // =============================================================================
 // SOUND ID CATALOG (matches Protocol.h)
@@ -119,9 +113,8 @@ public:
   
 private:
   AudioGeneratorMP3 *mp3;
-  AudioFileSourceSD *file;
+  AudioFileSourceSPIFFS *file;
   AudioOutputI2S *out;
-  SPIClass *hspi;
   
   // Circular queue
   uint8_t queue[AUDIO_QUEUE_SIZE];
@@ -151,7 +144,6 @@ AudioManager::AudioManager() {
   mp3 = nullptr;
   file = nullptr;
   out = nullptr;
-  hspi = nullptr;
   queueHead = 0;
   queueTail = 0;
   queueCount = 0;
@@ -168,16 +160,22 @@ bool AudioManager::begin(float volume) {
     return false;
   }
   
-  // Initialize HSPI for SD card (avoids VSPI conflict with CC1/CC2)
-  hspi = new SPIClass(HSPI);
-  hspi->begin(AUDIO_SD_SCK, AUDIO_SD_MISO, AUDIO_SD_MOSI, AUDIO_SD_CS);
-  
-  // Initialize SD card
-  if (!SD.begin(AUDIO_SD_CS, *hspi)) {
-    Serial.println(F("[Audio] SD card init failed!"));
+  // Initialize SPIFFS
+  if (!SPIFFS.begin(true)) {
+    Serial.println(F("[Audio] SPIFFS mount failed!"));
     return false;
   }
-  Serial.println(F("[Audio] SD card initialized"));
+  Serial.println(F("[Audio] SPIFFS mounted"));
+  
+  // List files for debugging
+  File root = SPIFFS.open("/");
+  File f = root.openNextFile();
+  uint8_t fileCount = 0;
+  while (f) {
+    fileCount++;
+    f = root.openNextFile();
+  }
+  Serial.printf("[Audio] Found %d files in SPIFFS\n", fileCount);
   
   // Initialize I2S output
   out = new AudioOutputI2S();
@@ -188,12 +186,12 @@ bool AudioManager::begin(float volume) {
   mp3 = new AudioGeneratorMP3();
   
   initialized = true;
-  Serial.println(F("[Audio] Manager ready"));
+  Serial.println(F("[Audio] Manager ready (SPIFFS)"));
   return true;
 }
 
 void AudioManager::buildFilename(uint8_t soundId, char* buffer) {
-  // Files named 1.mp3 to 28.mp3
+  // Files named /1.mp3 to /28.mp3
   sprintf(buffer, "/%d.mp3", soundId);
 }
 
@@ -216,13 +214,13 @@ bool AudioManager::playFile(uint8_t soundId) {
   buildFilename(soundId, filename);
   
   // Check if file exists
-  if (!SD.exists(filename)) {
+  if (!SPIFFS.exists(filename)) {
     Serial.printf("[Audio] File not found: %s\n", filename);
     return false;
   }
   
-  // Open file
-  file = new AudioFileSourceSD(filename);
+  // Open file from SPIFFS
+  file = new AudioFileSourceSPIFFS(filename);
   if (!file) {
     Serial.printf("[Audio] Failed to open: %s\n", filename);
     return false;
