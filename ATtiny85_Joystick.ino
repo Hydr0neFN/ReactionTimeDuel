@@ -40,6 +40,7 @@
 #define ID_BROADCAST      0xFF
 
 // Commands from Host
+#define CMD_REQ_ID          0x0D  // ID request (also sent by joystick)
 #define CMD_ASSIGN_ID       0x20
 #define CMD_GAME_START      0x21
 #define CMD_TRANSMIT_TOKEN  0x22
@@ -274,7 +275,9 @@ void handleCommand() {
       break;
       
     case CMD_IDLE:
-      currentState = STATE_IDLE;
+      // Full reset - ready for new game
+      currentState = STATE_UNASSIGNED;
+      selfID = 0x00;  // Clear ID so we can get a new one
       shakeCount = 0;
       resultTime = 0;
       gameMode = 0;
@@ -300,14 +303,25 @@ void handleCommand() {
       
     case CMD_VIBRATE:
       if (dataLow == 0xFF) {
-        // GO signal! Record start time
+        // GO signal! 
         gameStartTime = millis();
         vibrateMotor(500);
         
         if (gameMode == MODE_SHAKE) {
           currentState = STATE_SHAKE_MODE;
         } else {
-          currentState = STATE_BUTTON_MODE;
+          // CHEAT DETECTION: Button already pressed before GO?
+          if (digitalRead(PIN_BUTTON) == LOW) {
+            // Player was holding button = PENALTY
+            resultTime = 0xFFFF;  // Max time (same as timeout)
+            currentState = STATE_FINISHED;
+            // Brief vibration pattern to indicate foul
+            vibrateMotor(100);
+            delay(100);
+            vibrateMotor(100);
+          } else {
+            currentState = STATE_BUTTON_MODE;
+          }
         }
       } else {
         vibrateMotor((uint16_t)dataLow * 10);
@@ -378,6 +392,9 @@ void setup() {
 // MAIN LOOP
 // =============================================================================
 void loop() {
+  // Periodic ID request timing
+  static unsigned long lastReqTime = 0;
+  
   // Handle UART commands (when not in shake mode)
   if (currentState != STATE_SHAKE_MODE) {
     if (receivePacket()) {
@@ -388,6 +405,15 @@ void loop() {
   // State logic
   switch (currentState) {
     case STATE_UNASSIGNED:
+      // Periodically send ID request when button is pressed
+      if (digitalRead(PIN_BUTTON) == LOW) {
+        if (millis() - lastReqTime > 200) {  // Every 200ms to avoid flooding
+          sendPacket(ID_HOST, CMD_REQ_ID, 0, 0);
+          lastReqTime = millis();
+        }
+      }
+      break;
+      
     case STATE_IDLE:
       // Just wait for commands
       break;

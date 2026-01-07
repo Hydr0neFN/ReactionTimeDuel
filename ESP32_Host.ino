@@ -104,6 +104,12 @@ AudioManager audio;
 volatile NeoMode neoMode = NEO_OFF;
 volatile uint32_t neoColor = 0;
 volatile uint8_t timerProgress = 0;  // 0-12 LEDs for ring 5 timer
+volatile uint32_t ringColors[5] = {0, 0, 0, 0, 0};  // Per-ring override (0 = use default)
+
+// Color constants
+const uint32_t RED = 0xFF0000;
+const uint32_t GREEN = 0x00FF00;
+const uint32_t YELLOW = 0xFFFF00;
 
 GameState gameState = GAME_IDLE;
 Player players[MAX_PLAYERS];
@@ -261,8 +267,13 @@ void animationTask(void *param) {
         // Rings 0,1 = Players 1,2; Ring 2 = center; Rings 3,4 = Players 3,4
         for (uint8_t p = 0; p < MAX_PLAYERS; p++) {
           uint8_t ring = (p < 2) ? p : (p + 1);
-          uint32_t color = players[p].joined ? 
-            pixels.Color(0, 255, 0) : pixels.Color(255, 255, 0);
+          uint32_t color;
+          if (ringColors[ring] != 0) {
+            color = ringColors[ring];  // Use override color
+          } else {
+            color = players[p].joined ? 
+              pixels.Color(0, 255, 0) : pixels.Color(255, 255, 0);
+          }
           setRingColor(ring, color);
         }
         setRingColor(2, wheel(offset++));  // Center rainbow
@@ -327,6 +338,9 @@ void resetPlayers() {
   for (uint8_t i = 0; i < MAX_PLAYERS; i++) {
     players[i] = {false, false, 0xFFFF, 0};
   }
+  for (uint8_t i = 0; i < 5; i++) {
+    ringColors[i] = 0;  // Clear color overrides
+  }
   joinedCount = 0;
 }
 
@@ -334,6 +348,9 @@ void resetRound() {
   for (uint8_t i = 0; i < MAX_PLAYERS; i++) {
     players[i].finished = false;
     players[i].reactionTime = 0xFFFF;
+  }
+  for (uint8_t i = 0; i < 5; i++) {
+    ringColors[i] = 0;  // Clear color overrides
   }
 }
 
@@ -410,11 +427,12 @@ void handleAssignIDsState() {
   
   if (stateStartTime == 0) {
     stateStartTime = millis();
-    promptTime = 0;
-    waiting = false;
+    promptTime = millis();
     neoMode = NEO_JOIN_TIMER;
     timerProgress = LEDS_PER_RING;  // Start full
-    Serial.println(F("State: ASSIGN_IDS"));
+    Serial.println(F("State: ASSIGN_IDS - Press joystick buttons to join!"));
+    sendPacket(ID_DISPLAY, DISP_PROMPT_JOIN, 0, 0);  // Generic "press to join"
+    audio.queueSound(SND_PRESS_TO_JOIN);
   }
   
   // Check for touch skip (if 2+ players already joined)
@@ -429,51 +447,49 @@ void handleAssignIDsState() {
     }
   }
   
-  if (!waiting && currentAssignSlot < MAX_PLAYERS) {
-    // Prompt next player
-    Serial.printf("Prompting Player %d\n", currentAssignSlot + 1);
-    sendPacket(ID_DISPLAY, DISP_PROMPT_JOIN, 0, currentAssignSlot + 1);
-    sendPacket(ID_BROADCAST, CMD_ASSIGN_ID, 0, ID_STICK1 + currentAssignSlot);
-    
-    // Audio: "Player X"
-    audio.playPlayerNumber(currentAssignSlot + 1);
-    
-    promptTime = millis();
-    timerProgress = LEDS_PER_RING;  // Reset timer for this slot
-    waiting = true;
-  } else if (waiting) {
-    // Update timer progress (15s = 15000ms, 12 LEDs)
-    unsigned long elapsed = millis() - promptTime;
-    timerProgress = LEDS_PER_RING - (elapsed * LEDS_PER_RING / 15000);
-    if (timerProgress > LEDS_PER_RING) timerProgress = 0;  // Handle overflow
-    
-    // Check for response
-    if (receivePacket(0)) {
-      if (rxPacket[3] == CMD_OK && rxPacket[5] == ID_STICK1 + currentAssignSlot) {
-        players[currentAssignSlot].joined = true;
-        joinedCount++;
-        Serial.printf("Player %d joined!\n", currentAssignSlot + 1);
-        sendPacket(ID_DISPLAY, DISP_PLAYER_JOINED, 0, currentAssignSlot + 1);
+  // Update timer progress (15s total join window)
+  unsigned long elapsed = millis() - promptTime;
+  timerProgress = LEDS_PER_RING - (elapsed * LEDS_PER_RING / 15000);
+  if (timerProgress > LEDS_PER_RING) timerProgress = 0;
+  
+  // Listen for ID requests from joysticks
+  if (receivePacket(0)) {
+    if (rxPacket[3] == CMD_REQ_ID && joinedCount < MAX_PLAYERS) {
+      // Find next available slot
+      uint8_t slot = 0;
+      while (slot < MAX_PLAYERS && players[slot].joined) slot++;
+      
+      if (slot < MAX_PLAYERS) {
+        uint8_t assignedID = ID_STICK1 + slot;
+        // Send assignment back to requesting joystick (broadcast so all hear)
+        sendPacket(ID_BROADCAST, CMD_ASSIGN_ID, 0, assignedID);
         
-        // Audio: "Ready"
-        audio.queueSound(SND_READY);
+        // Wait briefly for joystick to claim it
+        delay(50);
         
-        currentAssignSlot++;
-        waiting = false;
+        // Check for confirmation
+        if (receivePacket(100)) {
+          if (rxPacket[3] == CMD_OK && rxPacket[5] == assignedID) {
+            players[slot].joined = true;
+            joinedCount++;
+            Serial.printf("Player %d joined!\n", slot + 1);
+            sendPacket(ID_DISPLAY, DISP_PLAYER_JOINED, 0, slot + 1);
+            audio.playPlayerNumber(slot + 1);
+            audio.queueSound(SND_READY);
+            
+            // Reset timer for more players
+            promptTime = millis();
+            timerProgress = LEDS_PER_RING;
+          }
+        }
       }
-    }
-    
-    // Timeout for this slot (15s)
-    if (millis() - promptTime > 15000) {
-      Serial.printf("Player %d timeout, skipping\n", currentAssignSlot + 1);
-      currentAssignSlot++;
-      waiting = false;
     }
   }
   
-  // All slots processed?
-  if (currentAssignSlot >= MAX_PLAYERS) {
+  // Timeout (15s with no new joins after last join, or 15s total if no joins)
+  if (millis() - promptTime > 15000) {
     if (joinedCount >= 2) {
+      Serial.printf("Join phase complete: %d players\n", joinedCount);
       audio.queueSound(SND_GET_READY);
       gameState = GAME_COUNTDOWN;
     } else {
@@ -486,13 +502,15 @@ void handleAssignIDsState() {
 }
 
 void handleCountdownState() {
+  static uint8_t phase = 0;  // 0=init delay, 1=countdown, 2=final delay
   static uint8_t count = 3;
   static unsigned long lastTick = 0;
   
   if (stateStartTime == 0) {
     stateStartTime = millis();
+    phase = 0;
     count = 3;
-    lastTick = 0;
+    lastTick = millis();
     resetRound();
     currentRound++;
     
@@ -503,7 +521,6 @@ void handleCountdownState() {
       sendPacket(ID_DISPLAY, DISP_REACTION_MODE, 0, 0);
       Serial.printf("Round %d: REACTION mode, delay=%dms\n", currentRound, REACT_DELAYS[delayIndex]);
       
-      // Audio: "Reaction mode" + instruction
       audio.queueSound(SND_REACTION_MODE);
       audio.queueSound(SND_REACTION_INSTRUCT);
     } else {
@@ -512,49 +529,55 @@ void handleCountdownState() {
       sendPacket(ID_DISPLAY, DISP_SHAKE_MODE, 0, SHAKE_TARGETS[targetIndex]);
       Serial.printf("Round %d: SHAKE mode, target=%d\n", currentRound, SHAKE_TARGETS[targetIndex]);
       
-      // Audio: "Shake it" + target count
       audio.queueSound(SND_SHAKE_IT);
       audio.queueSound(SND_YOU_WILL_SHAKE);
-      // Queue target number (10, 15, or 20)
       if (SHAKE_TARGETS[targetIndex] == 10) audio.queueSound(SND_NUM_10);
       else if (SHAKE_TARGETS[targetIndex] == 20) audio.queueSound(SND_NUM_20);
       else audio.queueSound(SND_NUM_15);
     }
     
     neoMode = NEO_COUNTDOWN_BLINK;
-    delay(1000);
   }
   
-  if (millis() - lastTick > 1000 && count > 0) {
+  // Phase 0: Initial delay (1 second for mode announcement)
+  if (phase == 0 && millis() - lastTick > 1000) {
+    phase = 1;
+    lastTick = millis();
+  }
+  
+  // Phase 1: Countdown 3, 2, 1
+  if (phase == 1 && millis() - lastTick > 1000 && count > 0) {
     lastTick = millis();
     Serial.printf("Countdown: %d\n", count);
     sendPacket(ID_DISPLAY, DISP_COUNTDOWN, 0, count);
     sendPacket(ID_BROADCAST, CMD_COUNTDOWN, 0, count);
-    
-    // Audio: countdown number or tick
     audio.playCountdown(count);
-    
     count--;
     
     if (count == 0) {
-      delay(1000);
-      // Send game start to all joysticks (puts them in WAITING_GO state)
-      uint8_t param = (gameMode == MODE_SHAKE) ? SHAKE_TARGETS[targetIndex] : 0;
-      sendPacket(ID_BROADCAST, CMD_GAME_START, gameMode, param);
-      
-      if (gameMode == MODE_SHAKE) {
-        // SHAKE MODE: Start timer immediately after countdown
-        sendPacket(ID_BROADCAST, CMD_VIBRATE, 0, 0xFF);
-        sendPacket(ID_DISPLAY, DISP_GO, 0, 0);
-        pulseGO();
-        audio.queueSound(SND_BEEP);
-        Serial.println(F("GO! (Shake mode)"));
-      }
-      // REACTION MODE: Timer starts when visual signal appears (in handleReactionState)
-      
-      gameState = (gameMode == MODE_SHAKE) ? GAME_SHAKE : GAME_REACTION;
-      stateStartTime = 0;
+      phase = 2;  // Move to final delay
+      lastTick = millis();
     }
+  }
+  
+  // Phase 2: Final delay then GO
+  if (phase == 2 && millis() - lastTick > 1000) {
+    // Send game start to all joysticks
+    uint8_t param = (gameMode == MODE_SHAKE) ? SHAKE_TARGETS[targetIndex] : 0;
+    sendPacket(ID_BROADCAST, CMD_GAME_START, gameMode, param);
+    
+    if (gameMode == MODE_SHAKE) {
+      // SHAKE MODE: Start timer immediately
+      sendPacket(ID_BROADCAST, CMD_VIBRATE, 0, 0xFF);
+      sendPacket(ID_DISPLAY, DISP_GO, 0, 0);
+      pulseGO();
+      audio.queueSound(SND_BEEP);
+      Serial.println(F("GO! (Shake mode)"));
+    }
+    // REACTION MODE: Timer starts in handleReactionState
+    
+    gameState = (gameMode == MODE_SHAKE) ? GAME_SHAKE : GAME_REACTION;
+    stateStartTime = 0;
   }
 }
 
@@ -610,13 +633,43 @@ void handleShakeState() {
 void handleCollectResultsState() {
   static uint8_t currentPlayer = 0;
   static unsigned long tokenTime = 0;
+  // Non-blocking blink state
+  static bool blinking = false;
+  static uint8_t blinkCount = 0;
+  static unsigned long blinkTime = 0;
+  static uint8_t blinkRing = 0;
+  static bool blinkOn = false;
   
   if (stateStartTime == 0) {
     stateStartTime = millis();
     currentPlayer = 0;
     tokenTime = 0;
+    blinking = false;
     neoMode = NEO_STATUS;
     Serial.println(F("Collecting results..."));
+  }
+  
+  // Handle ongoing blink animation (non-blocking)
+  if (blinking) {
+    if (millis() - blinkTime > 150) {
+      blinkTime = millis();
+      if (blinkOn) {
+        ringColors[blinkRing] = 0;  // Off
+        blinkOn = false;
+        blinkCount++;
+        if (blinkCount >= 3) {
+          // Blink sequence done
+          ringColors[blinkRing] = RED;  // Leave red
+          blinking = false;
+          currentPlayer++;
+          tokenTime = 0;
+        }
+      } else {
+        ringColors[blinkRing] = RED;  // On
+        blinkOn = true;
+      }
+    }
+    return;  // Don't process other players while blinking
   }
   
   if (currentPlayer < MAX_PLAYERS) {
@@ -633,17 +686,41 @@ void handleCollectResultsState() {
             uint16_t time = ((uint16_t)rxPacket[4] << 8) | rxPacket[5];
             players[currentPlayer].reactionTime = time;
             players[currentPlayer].finished = true;
-            Serial.printf("Player %d: %dms\n", currentPlayer + 1, time);
-            currentPlayer++;
-            tokenTime = 0;
+            
+            uint8_t ring = (currentPlayer < 2) ? currentPlayer : (currentPlayer + 1);
+            
+            if (time == 0xFFFF) {
+              // Cheater or timeout - start non-blocking blink sequence
+              Serial.printf("Player %d: PENALTY (pre-press or timeout)\n", currentPlayer + 1);
+              blinking = true;
+              blinkCount = 0;
+              blinkTime = millis();
+              blinkRing = ring;
+              blinkOn = true;
+              ringColors[ring] = RED;  // Start with red on
+              audio.queueSound(SND_ERROR_TONE);
+              // Don't increment currentPlayer here - done when blink finishes
+            } else {
+              Serial.printf("Player %d: %dms\n", currentPlayer + 1, time);
+              ringColors[ring] = GREEN;  // Valid result
+              currentPlayer++;
+              tokenTime = 0;
+            }
           }
         }
       } else {
-        // Timeout
+        // Timeout - also start blink sequence
+        uint8_t ring = (currentPlayer < 2) ? currentPlayer : (currentPlayer + 1);
         players[currentPlayer].finished = true;
+        players[currentPlayer].reactionTime = 0xFFFF;
         Serial.printf("Player %d: TIMEOUT\n", currentPlayer + 1);
-        currentPlayer++;
-        tokenTime = 0;
+        blinking = true;
+        blinkCount = 0;
+        blinkTime = millis();
+        blinkRing = ring;
+        blinkOn = true;
+        ringColors[ring] = RED;
+        audio.queueSound(SND_ERROR_TONE);
       }
     } else {
       currentPlayer++;
