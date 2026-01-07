@@ -391,6 +391,18 @@ void handleAssignIDsState() {
     Serial.println(F("State: ASSIGN_IDS"));
   }
   
+  // Check for touch skip (if 2+ players already joined)
+  if (joinedCount >= 2 && receivePacket(0)) {
+    if (rxPacket[3] == TOUCH_SKIP_WAIT) {
+      Serial.println(F("Touch skip - starting with current players"));
+      audio.queueSound(SND_BUTTON_CLICK);
+      audio.queueSound(SND_GET_READY);
+      gameState = GAME_COUNTDOWN;
+      stateStartTime = 0;
+      return;
+    }
+  }
+  
   if (!waiting && currentAssignSlot < MAX_PLAYERS) {
     // Prompt next player
     Serial.printf("Prompting Player %d\n", currentAssignSlot + 1);

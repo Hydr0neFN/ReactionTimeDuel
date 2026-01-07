@@ -163,7 +163,7 @@
 
 | CMD | Hex | Description |
 |:----|:---:|:------------|
-| `TOUCH_SKIP_WAIT` | `0x40` | Skip wait screen |
+| `TOUCH_SKIP_WAIT` | `0x40` | Skip remaining joins (needs 2+ players) |
 
 </details>
 
@@ -197,13 +197,13 @@ stateDiagram-v2
 
 | State | Description |
 |:------|:------------|
-| 👋 **ASSIGN_IDS** | Boot → "Press Player 1-4" (15s each) |
+| 👋 **ASSIGN_IDS** | Boot → "Press Player 1-4" (15s each). Touch to skip if 2+ joined |
 | ⏰ **COUNTDOWN** | 3-2-1 with blinks + vibration |
 | ⚡ **REACTION** | Press on GO! |
 | 🔄 **SHAKE** | Shake to target count |
 | 📊 **RESULTS** | Show times + scores |
 | 🏆 **FINAL** | Announce winner |
-| 🌈 **IDLE** | After game ends, wait for restart |
+| 🌈 **IDLE** | After game ends, touch to restart |
 
 ---
 
