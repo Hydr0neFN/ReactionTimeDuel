@@ -822,7 +822,7 @@ void setup() {
   pixels.show();
   
   // Audio system (uses SPIFFS - internal flash, no SD card needed)
-  if (audio.begin(0.5)) {
+  if (audio.begin()) {  // Uses max volume (4.0)
     Serial.println(F("Audio system ready"));
     audio.queueSound(SND_GET_READY);  // Startup sound
   } else {

@@ -87,7 +87,7 @@ public:
   AudioManager();
   
   // Initialization
-  bool begin(float volume = 0.5);
+  bool begin(float volume = 4.0);  // Default to max volume
   
   // Queue management
   void queueSound(uint8_t soundId);

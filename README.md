@@ -128,7 +128,8 @@
 
 | CMD | Hex | DATA_HIGH | DATA_LOW | Description |
 |:----|:---:|:---------:|:--------:|:------------|
-| `CMD_OK` | `0x0B` | — | player | ACK/Button |
+| `CMD_REQ_ID` | `0x0D` | — | — | Request ID assignment |
+| `CMD_OK` | `0x0B` | — | player | ACK/Button press |
 | `CMD_REACTION_DONE` | `0x26` | time>>8 | time&0xFF | Reaction ms |
 | `CMD_SHAKE_DONE` | `0x27` | time>>8 | time&0xFF | Shake ms |
 
@@ -140,7 +141,7 @@
 | CMD | Hex | DATA_HIGH | DATA_LOW | Description |
 |:----|:---:|:---------:|:--------:|:------------|
 | `DISP_IDLE` | `0x30` | — | — | Start screen |
-| `DISP_PROMPT_JOIN` | `0x31` | — | player | Prompt join |
+| `DISP_PROMPT_JOIN` | `0x31` | — | 0 or 1-4 | Generic (0) or specific player |
 | `DISP_PLAYER_JOINED` | `0x32` | — | player | Player joined |
 | `DISP_COUNTDOWN` | `0x33` | — | seconds | Countdown |
 | `DISP_GO` | `0x34` | — | — | Show "GO!" |
@@ -154,7 +155,7 @@
 | `DISP_SCORES` | `0x3C` | player | score | Update score |
 | `DISP_FINAL_WINNER` | `0x3D` | — | player | Game winner |
 
-> *\* Time = `0xFFFF` means timeout (show red ring, no time)*
+> *\* Time = `0xFFFF` means timeout or penalty/cheat (show red ring, no time)*
 
 </details>
 
@@ -173,8 +174,8 @@
 
 | Phase | Duration | On Timeout |
 |:------|:--------:|:-----------|
-| Join (per player) | 15s | Skip to next |
-| Reaction round | 10s | `0xFFFF` (red ring) |
+| Join phase | 60s total | Start game with joined players (min 2) |
+| Reaction round | 10s after GO | `0xFFFF` (red ring) |
 | Shake round | 30s | `0xFFFF` (red ring) |
 
 ---
@@ -183,7 +184,8 @@
 
 ```mermaid
 stateDiagram-v2
-    [*] --> ASSIGN_IDS: Power On
+    [*] --> IDLE: Power On
+    IDLE --> ASSIGN_IDS: Touch/Timeout
     ASSIGN_IDS --> COUNTDOWN: 2+ Players
     COUNTDOWN --> REACTION: Mode 1
     COUNTDOWN --> SHAKE: Mode 2
@@ -192,18 +194,17 @@ stateDiagram-v2
     RESULTS --> COUNTDOWN: Round < 5
     RESULTS --> FINAL: Round = 5
     FINAL --> IDLE: Done
-    IDLE --> ASSIGN_IDS: Touch Start
 ```
 
 | State | Description |
 |:------|:------------|
-| 👋 **ASSIGN_IDS** | Boot → "Press Player 1-4" (15s each). Touch to skip if 2+ joined |
+| 🌈 **IDLE** | Power on / after game ends. Touch to start |
+| 👋 **ASSIGN_IDS** | "Press to join" — 60s window. Touch to skip if 2+ joined |
 | ⏰ **COUNTDOWN** | 3-2-1 with blinks + vibration |
-| ⚡ **REACTION** | Random 10-20s delay, then GO signal + green LEDs. Press immediately! |
+| ⚡ **REACTION** | Random delay (10/15/20s), then GO + green LEDs. Press immediately! |
 | 🔄 **SHAKE** | Shake to target count (10/15/20) |
-| 📊 **RESULTS** | Show times + scores |
+| 📊 **RESULTS** | Show times + scores. 0xFFFF = timeout/penalty (red ring) |
 | 🏆 **FINAL** | Announce winner |
-| 🌈 **IDLE** | After game ends, touch to restart |
 
 ---
 
@@ -232,7 +233,7 @@ Uses **SPIFFS** (internal flash) — no SD card needed!
 AudioManager audio;
 
 void setup() {
-  audio.begin(0.5);  // 50% volume
+  audio.begin();  // Max volume (4.0)
 }
 
 void loop() {
