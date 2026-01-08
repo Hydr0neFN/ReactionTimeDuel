@@ -21,6 +21,51 @@
 
 ---
 
+## ♿ Accessibility
+
+> **"Made for most, fun for all."**
+
+Reaction Time Duel is designed with **multi-sensory feedback** to ensure players of all abilities can enjoy the game. Every game event is communicated through multiple channels simultaneously.
+
+### 🦻 For Hearing Impaired Players
+
+| Feature | How It Helps |
+|:--------|:-------------|
+| **NeoPixel LED Rings** | Each player has a dedicated LED ring providing visual cues — red/green status, countdown blinks, and the crucial "GO" signal (LEDs stop on fixed color) |
+| **7" Display** | Large screen shows all game state: "GO!", countdown numbers, reaction times, winner announcements |
+| **Color-Coded Feedback** | Green = joined/success, Red = penalty/timeout, Rainbow = idle/celebration |
+
+### 👁️ For Visually Impaired Players
+
+| Feature | How It Helps |
+|:--------|:-------------|
+| **Vibration Motor** | Each joystick vibrates for all key events — countdown pulses (200ms), GO signal (500ms strong), button confirmation (100ms), penalty double-buzz |
+| **Audio Announcements** | Voice callouts for everything: "Player 1 joined", "3... 2... 1...", "Player 2 wins!", game mode instructions |
+| **Tactile Button** | Large, easy-to-find button with hardware debounce for reliable input |
+
+### 🎯 Multi-Sensory Event Mapping
+
+| Game Event | Visual (LEDs) | Visual (Display) | Audio | Haptic (Vibration) |
+|:-----------|:-------------:|:----------------:|:-----:|:------------------:|
+| Player joins | Ring → Green | "Player X joined" | "Player X ready" | 100ms buzz |
+| Countdown | Blink red | "3", "2", "1" | Beep + voice | 200ms pulse each |
+| GO signal | Fixed green | "GO!" | Beep | 500ms strong |
+| Button press | — | — | — | 100ms confirm |
+| Win | Rainbow | "WINNER" | Fanfare | — |
+| Penalty/Timeout | Blink red 3× | Red ring, no time | Error tone | Double-buzz |
+
+### 💡 Design Philosophy
+
+The game never relies on a single sense to convey critical information:
+
+- **Can't hear?** → Watch the LEDs and display
+- **Can't see?** → Feel the vibrations and listen to audio  
+- **Limited mobility?** → Simple one-button + shake gameplay, detachable ergonomic joysticks
+
+This multi-modal approach ensures **no player is left out** of the fun.
+
+---
+
 ## 🏗️ Hardware Architecture
 
 ```

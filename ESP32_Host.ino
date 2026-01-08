@@ -18,6 +18,26 @@
  * 
  * Core 0: Game state machine, protocol handling
  * Core 1: NeoPixel animation task
+ * 
+ * ACCESSIBILITY DESIGN:
+ *   This game implements multi-sensory feedback for inclusive play:
+ *   
+ *   - VISUAL (Hearing Impaired):
+ *     • NeoPixel LED rings show player status, countdown, GO signal
+ *     • 7" Display shows all game text and results
+ *     • Color coding: Green=success, Red=penalty, Rainbow=idle
+ *   
+ *   - AUDIO (Visually Impaired):
+ *     • Voice announcements for all game events
+ *     • Distinct sounds: countdown beeps, GO tone, victory fanfare
+ *   
+ *   - HAPTIC (Both):
+ *     • Vibration motor in each joystick
+ *     • Countdown: 200ms pulse per second
+ *     • GO signal: 500ms strong vibration
+ *     • Penalty: Double-buzz pattern (100ms-100ms-100ms)
+ *   
+ *   Every critical game event triggers ALL THREE feedback channels.
  */
 
 #include <Adafruit_NeoPixel.h>
@@ -551,11 +571,12 @@ void handleCountdownState() {
   }
   
   // Phase 1: Countdown continues (2, 1)
+  // ACCESSIBILITY: Triple feedback - Display + Audio + Vibration (via CMD_COUNTDOWN)
   if (phase == 1 && millis() - lastTick > 1000 && count > 0) {
     Serial.printf("Countdown: %d\n", count);
-    sendPacket(ID_DISPLAY, DISP_COUNTDOWN, 0, count);
-    sendPacket(ID_BROADCAST, CMD_COUNTDOWN, 0, count);
-    audio.playCountdown(count);
+    sendPacket(ID_DISPLAY, DISP_COUNTDOWN, 0, count);  // Visual: Display shows number
+    sendPacket(ID_BROADCAST, CMD_COUNTDOWN, 0, count); // Haptic: Joysticks vibrate 200ms
+    audio.playCountdown(count);                        // Audio: Voice "3", "2", "1"
     count--;
     lastTick = millis();
     
