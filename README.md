@@ -1,387 +1,242 @@
-# 🎮 Reaction Time Duel
+# Reaction Time Duel - Firmware Documentation
 
-[![Platform](https://img.shields.io/badge/Platform-ESP32%20%7C%20ATtiny85-blue)](https://www.espressif.com/)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Status](https://img.shields.io/badge/Status-In%20Development-yellow)]()
-
-> **4-player competitive reaction time game in a portable briefcase with detachable joysticks.**
-
-![Game Preview](docs/preview.png)
-
----
-
-## ✨ Features
-
-- 🕹️ **4 Detachable Joysticks** — USB-C connected, each with button + vibration motor
-- 📺 **7" Touch Display** — Real-time game status and results
-- 💡 **NeoPixel LED Rings** — Visual feedback for each player
-- 🔊 **Audio Feedback** — Voice announcements and sound effects
-- 🎯 **Two Game Modes** — Reaction time & Shake detection
-- 📦 **Portable Briefcase** — Take the party anywhere
-
----
+**"Made for most, fun for all"**
 
 ## ♿ Accessibility
 
-> **"Made for most, fun for all."**
-
-Reaction Time Duel is designed with **multi-sensory feedback** to ensure players of all abilities can enjoy the game. Every game event is communicated through multiple channels simultaneously.
+This game implements multi-sensory feedback for inclusive play:
 
 ### 🦻 For Hearing Impaired Players
-
-| Feature | How It Helps |
-|:--------|:-------------|
-| **NeoPixel LED Rings** | Each player has a dedicated LED ring providing visual cues — red/green status, countdown blinks, and the crucial "GO" signal (LEDs stop on fixed color) |
-| **7" Display** | Large screen shows all game state: "GO!", countdown numbers, reaction times, winner announcements |
-| **Color-Coded Feedback** | Green = joined/success, Red = penalty/timeout, Rainbow = idle/celebration |
+- **NeoPixel LED rings**: Red/green status, countdown blinks, GO signal (LEDs stop on fixed color)
+- **7" Display**: All game state, countdown numbers, reaction times, winner announcements
+- **Color coding**: Green=success, Red=penalty, Rainbow=idle/celebration
 
 ### 👁️ For Visually Impaired Players
-
-| Feature | How It Helps |
-|:--------|:-------------|
-| **Vibration Motor** | Each joystick vibrates for all key events — countdown pulses (200ms), GO signal (500ms strong), button confirmation (100ms), penalty double-buzz |
-| **Audio Announcements** | Voice callouts for everything: "Player 1 joined", "3... 2... 1...", "Player 2 wins!", game mode instructions |
-| **Tactile Button** | Large, easy-to-find button with hardware debounce for reliable input |
+- **Vibration motor**: Countdown 200ms pulses, GO 500ms strong, button confirm 100ms, penalty double-buzz
+- **Audio announcements**: Voice callouts for all events
+- **Tactile button**: Large, easy-to-find, hardware debounced
 
 ### 🎯 Multi-Sensory Event Mapping
 
-| Game Event | Visual (LEDs) | Visual (Display) | Audio | Haptic (Vibration) |
-|:-----------|:-------------:|:----------------:|:-----:|:------------------:|
-| Player joins | Ring → Green | "Player X joined" | "Player X ready" | 100ms buzz |
-| Countdown | Blink red | "3", "2", "1" | Beep + voice | 200ms pulse each |
+| Event | Visual (LEDs) | Visual (Display) | Audio | Haptic |
+|:------|:--------------|:-----------------|:------|:-------|
+| Player joins | Green ring | "Player X ready" | Voice | 100ms buzz |
+| Countdown | Blink red | "3, 2, 1" | Beep+voice | 200ms pulse |
 | GO signal | Fixed green | "GO!" | Beep | 500ms strong |
 | Button press | — | — | — | 100ms confirm |
 | Win | Rainbow | "WINNER" | Fanfare | — |
-| Penalty/Timeout | Blink red 3× | Red ring, no time | Error tone | Double-buzz |
-
-### 💡 Design Philosophy
-
-The game never relies on a single sense to convey critical information:
-
-- **Can't hear?** → Watch the LEDs and display
-- **Can't see?** → Feel the vibrations and listen to audio  
-- **Limited mobility?** → Simple one-button + shake gameplay, detachable ergonomic joysticks
-
-This multi-modal approach ensures **no player is left out** of the fun.
+| Penalty/Timeout | Blink red 3× | Red, no time | Error tone | Double-buzz |
 
 ---
 
-## 🏗️ Hardware Architecture
+## Hardware Architecture
 
 ```
-                          Shared UART Bus (9600 baud)
-                    ┌────────────────────────────────────┐
-                    │                                    │
-┌─────────────────┐ │                          ┌──────────────────┐
-│   ESP32 Host    │◄┼─────────────────────────►│  ESP32-S3 Display│
-│  (DEVKIT-V1)    │ │                          │    (7" LCD)      │
-└────────┬────────┘ │                          └──────────────────┘
-         │          │        (Display: UART only, no GO/RST)
-         │          │
-         ├── GPIO17 TX ────┬────────┬────────┬────────┤
-         ├── GPIO16 RX ◄───┼────────┼────────┼────────┘
-         ├── GPIO19 GO ────┼────────┼────────┼────────►
-         └── GPIO18 RST ───┼────────┼────────┼────────►
-                           ▼        ▼        ▼        ▼
-                      ┌────────┐┌────────┐┌────────┐┌────────┐
-                      │Stick 1 ││Stick 2 ││Stick 3 ││Stick 4 │
-                      │ATtiny85││ATtiny85││ATtiny85││ATtiny85│
-                      └────────┘└────────┘└────────┘└────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                        BRIEFCASE                                 │
+│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐       │
+│  │ ESP32-DEVKIT │    │  ESP32-S3    │    │  MAX98357A   │       │
+│  │   (Host)     │───▶│  7" Display  │    │   (Audio)    │       │
+│  │              │    │              │    │              │       │
+│  └──────┬───────┘    └──────────────┘    └──────────────┘       │
+│         │ UART+GO+RST                                            │
+│         │                                                        │
+│    ┌────┴────┬─────────┬─────────┐                              │
+│    ▼         ▼         ▼         ▼                              │
+│ ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐    ┌──────────────┐        │
+│ │Stick1│ │Stick2│ │Stick3│ │Stick4│    │ NeoPixel ×5  │        │
+│ └──────┘ └──────┘ └──────┘ └──────┘    └──────────────┘        │
+│                                         (Display: UART only)    │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 📋 Pin Assignments
+## Pin Assignments
 
-> ⚠️ **PCB is printed — DO NOT CHANGE these pins!**
-
-<details>
-<summary><b>ESP32 Host (DEVKIT-V1)</b></summary>
+### ESP32-DEVKIT-V1 (Host)
 
 | GPIO | Function | Connection |
-|:----:|:---------|:-----------|
-| 17 | TX2 | → All joysticks RX + Display RX |
-| 16 | RX2 | ← All joysticks TX + Display TX |
-| 18 | CC1/RST | → Joysticks reset signal |
-| 19 | CC2/GO | → Joysticks timing sync |
-| 4 | DIN | → NeoPixel rings (5 × 12 LEDs) |
-| 23 | I2S DOUT | → MAX98357A amplifier |
-| 26 | I2S BCLK | → MAX98357A |
-| 25 | I2S LRC | → MAX98357A |
+|:-----|:---------|:-----------|
+| 17 | UART TX | D+ → Joystick RX (PB0) |
+| 16 | UART RX | D- ← Joystick TX (PB1) via voltage divider |
+| 18 | RST out | CC1 → Joystick PB5 (Reset) |
+| 19 | GO out | CC2 → Joystick PB3 (GO signal) |
+| 4 | NeoPixel | DIN to LED rings |
+| 23 | I2S DOUT | MAX98357A DIN |
+| 26 | I2S BCLK | MAX98357A BCLK |
+| 25 | I2S LRC | MAX98357A LRC |
 
-</details>
+### ATtiny85 (Joystick) - CORRECTED
 
-<details>
-<summary><b>ATtiny85-20P Joystick</b></summary>
+| PB# | Arduino Pin | Function | Notes |
+|:----|:------------|:---------|:------|
+| PB0 | 0 | RX + SDA | UART receive, I2C data (shared) |
+| PB1 | 1 | TX + Motor | UART transmit, Motor via Q2 transistor (shared) |
+| PB2 | 2 | SCL | I2C clock for MPU-6050 |
+| PB3 | 3 | GO | Hardware GO signal from ESP32 GPIO19 |
+| PB4 | 4 | Button | Switch input (INPUT_PULLUP) |
+| PB5 | 5 | RESET | Reset signal from ESP32 GPIO18 |
 
-| Pin | PB# | Function | Notes |
-|:---:|:---:|:---------|:------|
-| 5 | PB0 | RX + SDA | ⚡ Shared |
-| 6 | PB1 | TX | |
-| 7 | PB2 | SCL + GO | ⚡ Shared |
-| 2 | PB3 | Button | Pull-up + debounce |
-| 3 | PB4 | Motor | Via BC547 transistor |
-| 1 | PB5 | Reset | From CC1 |
+### Type-C Cable Mapping
 
-</details>
-
-<details>
-<summary><b>USB Type-C Connector</b></summary>
-
-| USB Pin | Signal | Direction |
-|:-------:|:------:|:----------|
-| D+ | RX | Host → Joystick |
-| D- | TX | Joystick → Host |
-| CC1 | RST | Host → Joystick |
-| CC2 | GO | Host → Joystick |
+| USB-C Pin | Signal | Direction |
+|:----------|:-------|:----------|
 | VBUS | +5V | Power |
-
-</details>
+| GND | GND | Power |
+| D+ | RX (to ATtiny PB0) | Host → Stick |
+| D- | TX (from ATtiny PB1) | Stick → Host |
+| CC1 | RST | Host → Stick |
+| CC2 | GO | Host → Stick |
 
 ---
 
-## 📡 Communication Protocol
+## Communication Protocol
 
 ### Packet Format (7 bytes)
-```
-┌───────┬─────────┬────────┬─────────┬───────────┬──────────┬───────┐
-│ START │ DEST_ID │ SRC_ID │   CMD   │ DATA_HIGH │ DATA_LOW │  CRC  │
-├───────┼─────────┼────────┼─────────┼───────────┼──────────┼───────┤
-│  0x0A │ 1 byte  │ 1 byte │ 1 byte  │  1 byte   │  1 byte  │ CRC8  │
-└───────┴─────────┴────────┴─────────┴───────────┴──────────┴───────┘
-```
+
+| Byte | Field | Description |
+|:-----|:------|:------------|
+| 0 | START | Always 0x0A |
+| 1 | DEST | Destination ID |
+| 2 | SRC | Source ID |
+| 3 | CMD | Command byte |
+| 4 | DATA_H | Data high byte |
+| 5 | DATA_L | Data low byte |
+| 6 | CRC | CRC8 checksum |
 
 ### Device IDs
+
 | ID | Device |
-|:--:|:-------|
-| `0x00` | Host |
-| `0x01`-`0x04` | Joystick 1-4 |
-| `0x05` | Display |
-| `0xFF` | Broadcast |
+|:---|:-------|
+| 0x00 | Host (ESP32) |
+| 0x01-0x04 | Joysticks 1-4 |
+| 0x10 | Display |
+| 0xFF | Broadcast |
 
-<details>
-<summary><b>📤 Commands: Host → Joystick</b></summary>
+### Commands
 
-| CMD | Hex | DATA_HIGH | DATA_LOW | Description |
-|:----|:---:|:---------:|:--------:|:------------|
-| `CMD_ASSIGN_ID` | `0x20` | — | target (1-4) | Assign ID |
-| `CMD_GAME_START` | `0x21` | mode | param | Start game |
-| `CMD_TRANSMIT_TOKEN` | `0x22` | — | player | Grant TX |
-| `CMD_VIBRATE` | `0x23` | — | 0xFF or dur | 0xFF=GO signal, else dur×10ms |
-| `CMD_IDLE` | `0x24` | — | — | Return idle |
-| `CMD_COUNTDOWN` | `0x25` | — | seconds | Countdown |
-
-</details>
-
-<details>
-<summary><b>📥 Commands: Joystick → Host</b></summary>
-
-| CMD | Hex | DATA_HIGH | DATA_LOW | Description |
-|:----|:---:|:---------:|:--------:|:------------|
-| `CMD_REQ_ID` | `0x0D` | — | — | Request ID assignment |
-| `CMD_OK` | `0x0B` | — | player | ACK/Button press |
-| `CMD_REACTION_DONE` | `0x26` | time>>8 | time&0xFF | Reaction ms |
-| `CMD_SHAKE_DONE` | `0x27` | time>>8 | time&0xFF | Shake ms |
-
-</details>
-
-<details>
-<summary><b>📺 Commands: Host → Display</b></summary>
-
-| CMD | Hex | DATA_HIGH | DATA_LOW | Description |
-|:----|:---:|:---------:|:--------:|:------------|
-| `DISP_IDLE` | `0x30` | — | — | Start screen |
-| `DISP_PROMPT_JOIN` | `0x31` | — | 0 or 1-4 | Generic (0) or specific player |
-| `DISP_PLAYER_JOINED` | `0x32` | — | player | Player joined |
-| `DISP_COUNTDOWN` | `0x33` | — | seconds | Countdown |
-| `DISP_GO` | `0x34` | — | — | Show "GO!" |
-| `DISP_REACTION_MODE` | `0x35` | — | — | Reaction mode |
-| `DISP_SHAKE_MODE` | `0x36` | — | target | Shake mode (10/15/20) |
-| `DISP_TIME_P1` | `0x37` | time>>8 | time&0xFF | P1 time* |
-| `DISP_TIME_P2` | `0x38` | time>>8 | time&0xFF | P2 time* |
-| `DISP_TIME_P3` | `0x39` | time>>8 | time&0xFF | P3 time* |
-| `DISP_TIME_P4` | `0x3A` | time>>8 | time&0xFF | P4 time* |
-| `DISP_ROUND_WINNER` | `0x3B` | — | player | Winner (0=none) |
-| `DISP_SCORES` | `0x3C` | player | score | Update score |
-| `DISP_FINAL_WINNER` | `0x3D` | — | player | Game winner |
-
-> *\* Time = `0xFFFF` means timeout or penalty/cheat (show red ring, no time)*
-
-</details>
-
-<details>
-<summary><b>👆 Commands: Display → Host</b></summary>
-
-| CMD | Hex | Description |
-|:----|:---:|:------------|
-| `TOUCH_SKIP_WAIT` | `0x40` | Skip remaining joins (needs 2+ players) |
-
-</details>
+| CMD | Name | Direction | DATA_H | DATA_L |
+|:----|:-----|:----------|:-------|:-------|
+| 0x10 | PING | Host→Stick | — | — |
+| 0x11 | PONG | Stick→Host | — | — |
+| 0x12 | GET_BUTTON | Both | — | 0/1 |
+| 0x13 | GET_ACCEL | Both | mag_H | mag_L |
+| 0x20 | ASSIGN_ID | Host→Stick | — | new_id |
+| 0x21 | JOIN_ACK | Stick→Host | — | id |
+| 0x22 | COUNTDOWN | Host→Stick | — | count |
+| 0x23 | VIBRATE | Host→Stick | — | dur×10ms or 0xFF=GO |
+| 0x24 | RESULT | Stick→Host | time_H | time_L |
+| 0x25 | SHAKE_COUNT | Stick→Host | count_H | count_L |
+| 0x30 | IDLE | Host→All | — | — |
 
 ---
 
-## ⏱️ Timeouts
+## Game State Machine
 
-| Phase | Duration | On Timeout |
-|:------|:--------:|:-----------|
-| Join window | 15s (resets on each join) | Start if 2+, else → IDLE |
-| IDLE wait | 60s or touch | → ASSIGN_IDS |
-| Reaction round | 10s after LEDs stop | `0xFFFF` (red ring) |
-| Shake round | 30s | `0xFFFF` (red ring) |
-
----
-
-## 🎮 Game Flow
-
-```mermaid
-stateDiagram-v2
-    [*] --> ASSIGN_IDS: Power On
-    ASSIGN_IDS --> IDLE: <2 Players (15s)
-    ASSIGN_IDS --> COUNTDOWN: 2+ Players
-    IDLE --> ASSIGN_IDS: Touch/60s
-    COUNTDOWN --> REACTION: Mode 1
-    COUNTDOWN --> SHAKE: Mode 2
-    REACTION --> RESULTS: All Done
-    SHAKE --> RESULTS: All Done
-    RESULTS --> COUNTDOWN: Round < 5
-    RESULTS --> FINAL: Round = 5
-    FINAL --> IDLE: Done
 ```
-
-| State | Description |
-|:------|:------------|
-| 👋 **ASSIGN_IDS** | Power on starts here. "Press to join" — 15s window. Touch to skip if 2+ |
-| 🌈 **IDLE** | Reached if <2 players, or after game ends. Touch/60s → ASSIGN_IDS |
-| ⏰ **COUNTDOWN** | 3-2-1 with blinks + vibration |
-| ⚡ **REACTION** | Display "GO!", LEDs flash random colors. When LEDs stop → press! |
-| 🔄 **SHAKE** | Shake to target count (10/15/20) |
-| 📊 **RESULTS** | Show times + scores. 0xFFFF = timeout/penalty (red ring) |
-| 🏆 **FINAL** | Announce winner after 5 rounds |
-
----
-
-## 🔊 Audio System
-
-Uses **SPIFFS** (internal flash) — no SD card needed!
-
-<details>
-<summary><b>Sound Files</b></summary>
-
-| File | Content |
-|:-----|:--------|
-| `/1.mp3` - `/4.mp3` | "One" - "Four" |
-| `/5.mp3` - `/7.mp3` | "Ten", "Fifteen", "Twenty" |
-| `/8.mp3` | "Get Ready" |
-| `/9.mp3` | Countdown beeps |
-| `/10.mp3` | "Player" |
-| `/11.mp3` | "Ready" |
-| `/12.mp3` - `/28.mp3` | Various announcements & SFX |
-
-</details>
-
-```cpp
-#include "AudioManager.h"
-
-AudioManager audio;
-
-void setup() {
-  audio.begin();  // Max volume (4.0)
-}
-
-void loop() {
-  audio.update();  // Must call every loop!
-  
-  audio.queueSound(SND_GET_READY);
-  audio.playPlayerWins(2);  // "Player 2 Wins"
-}
+        ┌─────────────────────────────────────────┐
+        │                                         │
+        ▼                                         │
+   ┌─────────┐    <2 players     ┌──────┐        │
+   │ ASSIGN  │───────────────────│ IDLE │        │
+┌─▶│  _IDS   │    after 15s      │      │────────┘
+│  └────┬────┘                   └──────┘  touch/60s
+│       │ 2+ players                          
+│       ▼                                     
+│  ┌─────────┐                                
+│  │COUNTDOWN│ 5 seconds total                
+│  └────┬────┘                                
+│       │                                     
+│       ▼                                     
+│  ┌─────────┐    ┌─────────┐                 
+│  │REACTION │ or │ SHAKE   │                 
+│  │  MODE   │    │  MODE   │                 
+│  └────┬────┘    └────┬────┘                 
+│       │              │                      
+│       ▼              ▼                      
+│  ┌─────────────────────┐                    
+│  │   SHOW_RESULTS      │                    
+│  └──────────┬──────────┘                    
+│             │                               
+│     ┌───────┴───────┐                       
+│     │ more rounds?  │                       
+│     └───────┬───────┘                       
+│        yes  │  no                           
+│             ▼                               
+│       ┌───────────┐                         
+│       │FINAL_WINNER│                        
+│       └─────┬─────┘                         
+│             │                               
+└─────────────┘                               
 ```
 
 ---
 
-## 🛠️ Building
+## Files
 
-### Prerequisites
-
-| Component | Tool |
-|:----------|:-----|
-| ATtiny85 | Arduino IDE + ATTinyCore |
-| ESP32 Host | Arduino IDE + ESP32 board |
-| ESP32-S3 Display | Arduino IDE + ESP32-S3 board |
-
-### Libraries
-
-```
-Arduino IDE → Sketch → Include Library → Manage Libraries
-```
-
-| Library | Used By |
-|:--------|:--------|
-| `ESP8266Audio` | ESP32 Host (audio) |
-| `Adafruit NeoPixel` | ESP32 Host (LEDs) |
-| `ATTinyCore` | Joystick firmware |
-
-> 💡 **Note:** ESP8266Audio works perfectly on ESP32 despite its name!
-
-### Upload SPIFFS
-
-```bash
-# Install ESP32 filesystem uploader plugin, then:
-Arduino IDE → Tools → ESP32 Sketch Data Upload
-```
+| File | Description |
+|:-----|:------------|
+| `Protocol.h` | Shared protocol definitions |
+| `ESP32_Host.ino` | Main game logic (host) |
+| `ESP32_HardwareTest.ino` | Host hardware test |
+| `ATtiny85_Joystick.ino` | Main joystick firmware |
+| `ATtiny85_HardwareTest.ino` | Joystick test (needs host) |
+| `ATtiny85_BasicTest.ino` | Standalone joystick test (no host needed) |
+| `AudioManager.h` | Audio queue system |
+| `DisplayProtocol.h` | Display commands |
 
 ---
 
-## 📁 Project Files
+## Testing
 
-```
-ReactionTimeDuel/
-├── 📄 Protocol.h            # Shared protocol definitions
-├── 📄 DisplayProtocol.h     # Display-side protocol helper
-├── 📄 AudioManager.h        # Non-blocking audio system
-├── 📄 ATtiny85_Joystick.ino # Joystick firmware
-├── 📄 ESP32_Host.ino        # Main game controller
-├── 📄 soundProgram_Fixed.ino# Audio test sketch
-└── 📁 data/                 # SPIFFS audio files
-    ├── 1.mp3
-    ├── 2.mp3
-    └── ...
-```
+### Standalone Joystick Test (ATtiny85_BasicTest.ino)
 
----
+**No ESP32 needed.** Works at 1 MHz clock.
 
-## ✅ Testing Checklist
+| Event | Expected |
+|:------|:---------|
+| Power on | 3 short buzzes → silence |
+| Press button | 1 short buzz |
 
-- [ ] UART loopback (TX→RX)
-- [ ] ID assignment sequence
-- [ ] Hardware GO signal timing
-- [ ] NeoPixel animations
-- [ ] Button debounce
-- [ ] Motor vibration
-- [ ] MPU-6050 shake detection
-- [ ] Audio playback
-- [ ] 5-round game completion
-- [ ] Display communication
+### Host + Joystick Test
+
+1. Upload `ESP32_HardwareTest.ino` to ESP32
+2. Upload `ATtiny85_HardwareTest.ino` to ATtiny85 (requires 8 MHz clock)
+3. Connect joystick to host
+4. Open Serial Monitor (115200 baud)
+5. Send commands:
+
+| Key | Test |
+|:---:|:-----|
+| `6` | UART ping (should see PONG) |
+| `7` | Read button state |
+| `4` | Pulse GO signal (joystick vibrates) |
+| `v` | Vibrate via UART command |
+| `0` | Full test sequence |
 
 ---
 
-## 👥 Team
+## Clock Speed Requirements
 
-| Name | Student ID |
-|:-----|:-----------|
-| Andrei | 502813 |
-| Yu-I | 464050 |
-| Ahzam | 509403 |
-| Wout | 497725 |
+| Code | Minimum Clock |
+|:-----|:--------------|
+| ATtiny85_BasicTest.ino | 1 MHz ✓ |
+| ATtiny85_HardwareTest.ino | 8 MHz |
+| ATtiny85_Joystick.ino | 8 MHz |
 
----
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+**To set 8 MHz:**
+1. Tools → Clock Source → "8 MHz (internal)"
+2. Tools → Burn Bootloader
+3. Upload code
 
 ---
 
-<p align="center">
-  <b>Made for most, fun for all.</b><br>
-  <i>Unlock the game.</i>
-</p>
+## Troubleshooting
+
+| Problem | Cause | Solution |
+|:--------|:------|:---------|
+| Motor always on | Floating GO pin | Use BasicTest or connect to ESP32 |
+| No UART response | Wrong clock speed | Set 8 MHz, burn bootloader |
+| Motor never spins | Wrong pin (was PB4) | Now fixed to PB1 |
+| Button no response | Wrong pin (was PB3) | Now fixed to PB4 |

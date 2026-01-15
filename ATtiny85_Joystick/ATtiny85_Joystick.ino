@@ -69,10 +69,11 @@
 #define SCL_PIN   2   // PB2
 #define I2C_DELAY 5
 
-#define SDA_HIGH()  pinMode(SDA_PIN, INPUT)
-#define SDA_LOW()   pinMode(SDA_PIN, OUTPUT); digitalWrite(SDA_PIN, LOW)
-#define SCL_HIGH()  pinMode(SCL_PIN, INPUT)
-#define SCL_LOW()   pinMode(SCL_PIN, OUTPUT); digitalWrite(SCL_PIN, LOW)
+// Safe macros for use in if/else (do-while wrapper)
+#define SDA_HIGH()  do { pinMode(SDA_PIN, INPUT); } while(0)
+#define SDA_LOW()   do { pinMode(SDA_PIN, OUTPUT); digitalWrite(SDA_PIN, LOW); } while(0)
+#define SCL_HIGH()  do { pinMode(SCL_PIN, INPUT); } while(0)
+#define SCL_LOW()   do { pinMode(SCL_PIN, OUTPUT); digitalWrite(SCL_PIN, LOW); } while(0)
 #define SDA_READ()  digitalRead(SDA_PIN)
 
 // =============================================================================
