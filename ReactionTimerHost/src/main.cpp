@@ -413,7 +413,7 @@ void sendGO() {
   // Send GO signal via ESP-NOW broadcast to all joysticks
   espnowBroadcast(CMD_GO, 0);
   Serial.println("[GO] Sent CMD_GO via ESP-NOW");
-// }
+}
 
 // void pulseRST() {
 //   digitalWrite(PIN_RST, HIGH);
