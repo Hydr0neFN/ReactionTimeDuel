@@ -59,6 +59,7 @@
 // =============================================================================
 #define AUDIO_QUEUE_SIZE      8
 #define DEFAULT_VOLUME        4.0   // Max volume (range 0.0 - 4.0)
+#define DEFAULT_SOUND_GAP     250   // ms gap between queued sounds (adds natural pauses)
 
 // I2S Pins (match schematic - GPIO25/26/27)
 #define I2S_DOUT_PIN          25    // Data out to DAC
@@ -72,14 +73,16 @@
 // =============================================================================
 class AudioManager {
 public:
-  AudioManager() : 
-    mp3(nullptr), 
-    file(nullptr), 
+  AudioManager() :
+    mp3(nullptr),
+    file(nullptr),
     out(nullptr),
-    queueHead(0), 
+    queueHead(0),
     queueTail(0),
     isPlaying(false),
-    volume(DEFAULT_VOLUME) {}
+    volume(DEFAULT_VOLUME),
+    soundGap(DEFAULT_SOUND_GAP),
+    lastSoundEndTime(0) {}
   
   ~AudioManager() {
     stop();
@@ -183,6 +186,7 @@ public:
         if (!mp3->loop()) {
           mp3->stop();
           isPlaying = false;
+          lastSoundEndTime = millis();  // Track when sound ended
           if (file) {
             delete file;
             file = nullptr;
@@ -190,6 +194,7 @@ public:
         }
       } else {
         isPlaying = false;
+        lastSoundEndTime = millis();  // Track when sound ended
         if (file) {
           delete file;
           file = nullptr;
@@ -197,8 +202,13 @@ public:
       }
     }
 
-    // If not playing and queue has items, start next
+    // If not playing and queue has items, wait for gap then start next
     if (!isPlaying && queueHead != queueTail) {
+      // Wait for gap between sounds (creates natural pauses)
+      if (lastSoundEndTime > 0 && (millis() - lastSoundEndTime) < soundGap) {
+        return;  // Still waiting for gap
+      }
+
       const char* filename = queue[queueHead];
       queueHead = (queueHead + 1) % AUDIO_QUEUE_SIZE;
 
@@ -232,6 +242,7 @@ public:
       mp3->stop();
     }
     isPlaying = false;
+    lastSoundEndTime = 0;  // Reset so next sound plays immediately
     // Clear queue
     queueHead = queueTail = 0;
   }
@@ -249,6 +260,11 @@ public:
     }
   }
 
+  // Set gap between sounds in ms (default 250ms)
+  void setSoundGap(unsigned long gapMs) {
+    soundGap = gapMs;
+  }
+
 private:
   AudioGeneratorMP3 *mp3;
   AudioFileSourceSPIFFS *file;
@@ -260,6 +276,8 @@ private:
   
   bool isPlaying;
   float volume;
+  unsigned long soundGap;        // ms gap between queued sounds
+  unsigned long lastSoundEndTime; // when the last sound finished
 };
 
 #endif // AUDIO_MANAGER_H

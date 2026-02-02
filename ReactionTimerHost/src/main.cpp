@@ -921,8 +921,10 @@ void handleFinalWinner() {
     neoState = NEO_IDLE_RAINBOW;
     neoOffset = 0;
 
-    audio.queueSound(SND_VICTORY_FANFARE);
+    // Play winner announcement first, then victory music, then game over
+    // This prevents voices from being cramped at the end after the long victory theme
     audio.playPlayerWins(winner + 1);
+    audio.queueSound(SND_VICTORY_FANFARE);
     audio.queueSound(SND_GAME_OVER);
   }
 

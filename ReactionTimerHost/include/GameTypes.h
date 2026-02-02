@@ -25,7 +25,7 @@
 #define DURATION_IDLE     3000
 #define DURATION_COUNTDOWN 4000
 #define DURATION_RESULTS  5000
-#define DURATION_FINAL    10000
+#define DURATION_FINAL    15000
 
 // =============================================================================
 // REACTION DELAYS
