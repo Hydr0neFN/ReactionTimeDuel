@@ -18,13 +18,13 @@
 // TIMING (milliseconds)
 // =============================================================================
 #define TIMEOUT_JOIN      30000   // Max join phase
-#define TIMEOUT_REACTION  10000   // Max time after GO
+#define TIMEOUT_REACTION  5000   // Max time after GO
 #define TIMEOUT_SHAKE     30000   // Max shake phase
 #define JOIN_IDLE_TIME    5000    // Auto-start after last join
 
 #define DURATION_IDLE     3000
 #define DURATION_COUNTDOWN 4000
-#define DURATION_RESULTS  5000
+#define DURATION_RESULTS  7000
 #define DURATION_FINAL    15000
 
 // =============================================================================
