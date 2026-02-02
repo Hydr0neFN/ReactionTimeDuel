@@ -40,7 +40,7 @@
 // PIN DEFINITIONS
 // =============================================================================
 #define PIN_NEOPIXEL      4
-#define PIN_RST           18    // CC1 -> reset joysticks
+// #define PIN_RST           18    // CC1 -> reset joysticks
 
 // =============================================================================
 // ESP-NOW MAC ADDRESSES
@@ -413,13 +413,13 @@ void sendGO() {
   // Send GO signal via ESP-NOW broadcast to all joysticks
   espnowBroadcast(CMD_GO, 0);
   Serial.println("[GO] Sent CMD_GO via ESP-NOW");
-}
+// }
 
-void pulseRST() {
-  digitalWrite(PIN_RST, HIGH);
-  delay(10);
-  digitalWrite(PIN_RST, LOW);
-}
+// void pulseRST() {
+//   digitalWrite(PIN_RST, HIGH);
+//   delay(10);
+//   digitalWrite(PIN_RST, LOW);
+// }
 
 // =============================================================================
 // ESP-NOW CALLBACKS
@@ -941,9 +941,9 @@ void setup() {
   Serial.begin(115200);
   Serial.println("\n=== REACTION REIMAGINED - HOST ===");
 
-  // Hardware control pins
-  pinMode(PIN_RST, OUTPUT);
-  digitalWrite(PIN_RST, LOW);
+  // // Hardware control pins
+  // pinMode(PIN_RST, OUTPUT);
+  // digitalWrite(PIN_RST, LOW);
 
   // NeoPixels
   pixels.begin();

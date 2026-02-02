@@ -31,7 +31,7 @@
 // REACTION DELAYS
 // =============================================================================
 #define NUM_REACT_DELAYS  3
-static const uint16_t REACT_DELAYS[NUM_REACT_DELAYS] = {10000, 15000, 20000};
+static const uint16_t REACT_DELAYS[NUM_REACT_DELAYS] = {3000, 5000, 7000};
 
 // =============================================================================
 // SHAKE TARGETS
