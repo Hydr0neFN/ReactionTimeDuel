@@ -859,11 +859,14 @@ void handleCollect() {
 }
 
 // --- SHOW RESULTS ---
+static bool resultsPhase2 = false;  // false = showing times, true = showing winner/scores
+
 void handleShowResults() {
   if (stateStartTime == 0) {
     stateStartTime = millis();
+    resultsPhase2 = false;
 
-    // Send all times to display
+    // Phase 1: Send all reaction times to display
     const uint8_t timeCmds[] = {DISP_TIME_P1, DISP_TIME_P2, DISP_TIME_P3, DISP_TIME_P4};
     for (int i = 0; i < MAX_PLAYERS; i++) {
       if (players[i].joined) {
@@ -872,6 +875,12 @@ void handleShowResults() {
         delay(10);
       }
     }
+    Serial.println("[RESULTS] Phase 1: Showing reaction times");
+  }
+
+  // After 3 seconds, send winner and scores (Phase 2)
+  if (!resultsPhase2 && millis() - stateStartTime > 3000) {
+    resultsPhase2 = true;
 
     // Find and announce winner
     uint8_t winner = findRoundWinner();
@@ -893,21 +902,22 @@ void handleShowResults() {
       }
     }
 
-    Serial.println("[RESULTS] Scores:");
+    Serial.println("[RESULTS] Phase 2: Showing winner and scores");
     for (int i = 0; i < MAX_PLAYERS; i++) {
       if (players[i].joined)
         Serial.printf("  Player %d: score=%d, time=%d ms\n", i+1, players[i].score, players[i].reactionTime);
     }
   }
 
-  // Show for 5 seconds then next round or final
-  if (millis() - stateStartTime > DURATION_RESULTS) {
+  // After 6 seconds total (3s times + 3s scores), transition to next state
+  if (millis() - stateStartTime > 6000) {
     if (currentRound >= TOTAL_ROUNDS) {
       gameState = STATE_FINAL_WINNER;
     } else {
       gameState = STATE_COUNTDOWN;
     }
     stateStartTime = 0;
+    resultsPhase2 = false;
   }
 }
 
