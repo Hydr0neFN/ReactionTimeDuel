@@ -18,13 +18,14 @@
 // TIMING (milliseconds)
 // =============================================================================
 #define TIMEOUT_JOIN      30000   // Max join phase
-#define TIMEOUT_REACTION  5000   // Max time after GO
+#define TIMEOUT_REACTION  5000   // Max time after GO (NOTE: slave uses 10000 - keep in sync)
 #define TIMEOUT_SHAKE     30000   // Max shake phase
 #define JOIN_IDLE_TIME    5000    // Auto-start after last join
 
 #define DURATION_IDLE     3000
 #define DURATION_COUNTDOWN 4000
 #define DURATION_RESULTS  7000
+// playerX(1.42s) + wins(0.50s) + victory(10.53s) + gameover(1.23s) + gaps = ~14.4s
 #define DURATION_FINAL    15000
 
 // =============================================================================
@@ -32,6 +33,12 @@
 // =============================================================================
 #define NUM_REACT_DELAYS  3
 static const uint16_t REACT_DELAYS[NUM_REACT_DELAYS] = {3000, 5000, 7000};
+
+// Reaction announcement delays (based on audio file lengths + 250ms gaps)
+// Subsequent: get_ready(0.99s) + gap + reaction(1.22s) = ~2.5s
+#define REACT_ANNOUNCE_DELAY        3000   // ms - subsequent rounds
+// First time: + react_inst(4.70s) + gap = ~7.4s
+#define REACT_ANNOUNCE_DELAY_FIRST  8000   // ms - first round with instructions
 
 // =============================================================================
 // SHAKE TARGETS

@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pip install:*)",
+      "Bash(C:UsersRuanyouyi.platformiopenvScriptspython.exe -m pip install intelhex)",
+      "Bash(\"C:\\\\Users\\\\Ruanyouyi\\\\.platformio\\\\penv\\\\Scripts\\\\python.exe\" -m pip install intelhex)",
+      "Bash(powershell -Command:*)",
+      "Bash(where:*)",
+      "Bash(python:*)",
+      "Read(//c/Users/Ruanyouyi/Documents/GitHub/ReactionTimeDual/**)"
+    ]
+  }
+}

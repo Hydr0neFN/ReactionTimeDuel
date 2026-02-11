@@ -102,6 +102,10 @@ uint8_t modeBagIdx = 2;  // start at 2 to trigger reshuffle on first use
 bool reactionInstructPlayed = false;
 bool shakeInstructPlayed = false;
 
+// Reaction announcement tracking
+bool reactionAnnouncementDone = false;  // wait for voice before random delay
+bool reactionFirstInstruct = false;     // true when instructions were queued this round
+
 // Shake countdown tracking
 unsigned long shakeStartTime = 0;   // for center ring countdown
 
@@ -110,11 +114,18 @@ uint8_t countdownNum = 3;
 unsigned long countdownFlashStart = 0;  // for sync flash on countdown
 #define COUNTDOWN_FLASH_DURATION 200    // ms - matches slave vibration duration
 bool shakeAnnouncementDone = false;     // tracks if shake announcement phase is complete
-#define SHAKE_ANNOUNCE_DELAY 4000       // ms - wait for announcements before countdown
+bool shakeFirstInstruct = false;       // true when shake instructions were queued this round
+// Shake announcement delays (based on audio file lengths + 250ms gaps)
+// Subsequent: get_ready(0.99s) + gap + shake(0.82s) + gap + target(≤1.27s) = ~3.6s
+#define SHAKE_ANNOUNCE_DELAY        4000    // ms - subsequent rounds
+// First time: + will_shake(4.30s) + gap = ~8.1s
+#define SHAKE_ANNOUNCE_DELAY_FIRST  8500    // ms - first round with instructions
 
 // Collect phase
 uint8_t collectPlayer = 0;          // which player we're waiting on next
 unsigned long collectTimeout = 0;
+bool collectYellowPhase = false;     // yellow warning before disqualification
+unsigned long collectYellowStart = 0;
 
 // =============================================================================
 // NEOPIXEL STATE (uses NeoMode from GameTypes.h)
@@ -127,6 +138,7 @@ bool neoBlink = false;
 uint8_t blinkSlot = 0;  // which player slot to blink (0-3) for NEO_BLINK_SLOT mode
 // Per-ring color overrides (0 = use default animation). Set during COLLECT/RESULTS.
 uint32_t ringOverride[5] = {0,0,0,0,0};
+bool ringBlink[5] = {false,false,false,false,false};  // true = blink this ring on/off
 
 // =============================================================================
 // HELPERS (playerToRing is in GameTypes.h)
@@ -169,7 +181,7 @@ void resetPlayers() {
   modeBagIdx = 2;  // reset shuffle bag for new game
   reactionInstructPlayed = false;  // reset instruction flag for new game
   shakeInstructPlayed = false;
-  for (int i = 0; i < 5; i++) ringOverride[i] = 0;
+  for (int i = 0; i < 5; i++) { ringOverride[i] = 0; ringBlink[i] = false; }
 }
 
 void resetRound() {
@@ -177,7 +189,7 @@ void resetRound() {
     players[i].finished = false;
     players[i].reactionTime = 0xFFFF;
   }
-  for (int i = 0; i < 5; i++) ringOverride[i] = 0;
+  for (int i = 0; i < 5; i++) { ringOverride[i] = 0; ringBlink[i] = false; }
 }
 
 uint8_t findRoundWinner() {
@@ -279,19 +291,26 @@ void updateNeoPixels() {
       }
       break;
 
-    case NEO_STATUS:
-      // Show ring overrides where set, otherwise off (rate limited)
+    case NEO_STATUS: {
+      // Show ring overrides where set, blink rings with ringBlink flag
       if (now - neoLastUpdate > 50) {  // 20 FPS max
         neoLastUpdate = now;
+        // Toggle blink state every ~300ms
+        bool blinkOn = ((now / 300) % 2) == 0;
         for (int r = 0; r < 5; r++) {
-          if (ringOverride[r])
-            setRingColor(r, ringOverride[r]);
-          else
+          if (ringOverride[r]) {
+            if (ringBlink[r] && !blinkOn)
+              setRingColor(r, 0);  // blink off phase
+            else
+              setRingColor(r, ringOverride[r]);
+          } else {
             setRingColor(r, 0);
+          }
         }
         pixels.show();
       }
       break;
+    }
 
     case NEO_BLINK_SLOT:
       // Blink the prompted player's ring, show green for already-joined players
@@ -515,20 +534,32 @@ void OnDataRecv(const uint8_t *mac, const uint8_t *data, int len) {
                   (pkt.cmd == CMD_REACTION_DONE) ? "REACTION" : "SHAKE",
                   val);
 
-    // Immediately turn that player's ring GREEN if valid, RED if penalty
+    // Immediately turn that player's ring GREEN if valid, BLINK RED if penalty
     uint8_t ring = playerToRing(playerSlot);
     if (val == TIME_PENALTY) {
       ringOverride[ring] = pixels.Color(255, 0, 0);
-      audio.queueSound(SND_ERROR_TONE);
-      Serial.printf("[NEO] Player %d ring %d -> RED (penalty)\n", playerSlot + 1, ring);
+      ringBlink[ring] = true;  // blink red for penalty
+      Serial.printf("[NEO] Player %d ring %d -> BLINK RED (penalty)\n", playerSlot + 1, ring);
     } else {
       ringOverride[ring] = pixels.Color(0, 255, 0);
+      ringBlink[ring] = false;
       Serial.printf("[NEO] Player %d ring %d -> GREEN (time=%d)\n", playerSlot + 1, ring, val);
     }
     // If we were in NEO_FIXED_COLOR or NEO_RANDOM_FAST, switch to status mode
     // so the ring override renders immediately
     if (neoState == NEO_FIXED_COLOR || neoState == NEO_RANDOM_FAST) {
-      // Keep other rings at their last state - just render overrides on top
+      // During COLLECT: set non-finished players' rings to yellow so they stay visible
+      if (gameState == STATE_COLLECT) {
+        for (int j = 0; j < MAX_PLAYERS; j++) {
+          if (players[j].joined && !players[j].finished) {
+            uint8_t rj = playerToRing(j);
+            if (ringOverride[rj] == 0) {
+              ringOverride[rj] = pixels.Color(255, 255, 0);
+              ringBlink[rj] = false;
+            }
+          }
+        }
+      }
       neoState = NEO_STATUS;
     }
   }
@@ -582,7 +613,8 @@ void startPromptSlot(uint8_t slot) {
   // Send prompt to display (player number 1-4)
   sendToDisplay(DISP_PLAYER_PROMPT, 0, slot + 1);
 
-  // Play audio for player number
+  // Interrupt any currently playing audio, then play new player number
+  audio.stop();
   audio.playPlayerNumber(slot + 1);
 
   Serial.printf("[JOIN] Prompting Player %d slot...\n", slot + 1);
@@ -662,7 +694,10 @@ void handleCountdown() {
       if (!reactionInstructPlayed) {
         audio.queueSound(SND_REACTION_INSTRUCT);
         reactionInstructPlayed = true;
+        reactionFirstInstruct = true;
         Serial.println("[COUNTDOWN] First reaction mode - playing instruction");
+      } else {
+        reactionFirstInstruct = false;
       }
       // NeoPixels: random cycling during reaction mode
       neoState = NEO_RANDOM_FAST;
@@ -670,9 +705,9 @@ void handleCountdown() {
       // Send mode to joysticks
       espnowBroadcast(CMD_GAME_START, ((uint16_t)gameMode << 8) | 0);
 
-      // Reaction mode: NO countdown - go directly to random wait
-      // This preserves the surprise element
-      Serial.println("[REACTION] Skipping countdown - going to random wait");
+      // Reaction mode: NO countdown - wait for announcements then random delay
+      Serial.println("[REACTION] Waiting for announcements before random delay");
+      reactionAnnouncementDone = false;
       gameState = STATE_REACTION;
       stateStartTime = 0;
       return;
@@ -687,7 +722,10 @@ void handleCountdown() {
       if (!shakeInstructPlayed) {
         audio.queueSound(SND_YOU_WILL_SHAKE);
         shakeInstructPlayed = true;
+        shakeFirstInstruct = true;
         Serial.println("[COUNTDOWN] First shake mode - playing instruction");
+      } else {
+        shakeFirstInstruct = false;
       }
       // Announce target number (plays "Ten", "Fifteen", or "Twenty")
       audio.playShakeTarget(SHAKE_TARGETS[targetIdx]);
@@ -706,7 +744,10 @@ void handleCountdown() {
 
   // Shake mode: wait for announcements before starting countdown
   if (gameMode == MODE_SHAKE && !shakeAnnouncementDone) {
-    if (millis() - stateStartTime > SHAKE_ANNOUNCE_DELAY) {
+    unsigned long shakeAnnounceDelay = shakeFirstInstruct
+        ? SHAKE_ANNOUNCE_DELAY_FIRST
+        : SHAKE_ANNOUNCE_DELAY;
+    if (millis() - stateStartTime > shakeAnnounceDelay) {
       shakeAnnouncementDone = true;
       stateStartTime = millis();  // reset for countdown timing
       // Start countdown 3
@@ -745,15 +786,28 @@ void handleCountdown() {
 }
 
 // --- REACTION (random wait then GO) ---
-// No countdown for reaction mode - preserves surprise element
+// Waits for voice announcements, then random delay, then GO
 void handleReaction() {
   if (stateStartTime == 0) {
     stateStartTime = millis();
     // NeoPixels should already be in NEO_RANDOM_FAST
     // (for reaction mode). If not, set it.
     if (neoState != NEO_RANDOM_FAST) neoState = NEO_RANDOM_FAST;
-    sendToDisplay(DISP_GO, 0, 0); // display shows "GO" meaning "get ready, watch LEDs"
-    Serial.println("[REACTION] Waiting for random delay...");
+    Serial.println("[REACTION] Waiting for announcements...");
+  }
+
+  // Wait for voice announcements to finish before starting random delay
+  if (!reactionAnnouncementDone) {
+    unsigned long announceDelay = reactionFirstInstruct
+        ? REACT_ANNOUNCE_DELAY_FIRST
+        : REACT_ANNOUNCE_DELAY;
+    if (millis() - stateStartTime > announceDelay) {
+      reactionAnnouncementDone = true;
+      stateStartTime = millis();  // reset for random delay timing
+      sendToDisplay(DISP_GO, 0, 0); // display shows "GO" meaning "get ready, watch LEDs"
+      Serial.printf("[REACTION] Announcements done, random delay=%dms\n", REACT_DELAYS[delayIdx]);
+    }
+    return;
   }
 
   // After random delay, fire GO
@@ -771,7 +825,7 @@ void handleReaction() {
 
     // Move to collect
     gameState = STATE_COLLECT;
-    stateStartTime = millis();
+    stateStartTime = 0;
     collectPlayer = 0;
   }
 }
@@ -787,7 +841,7 @@ void handleShake() {
 
   // Timeout after 30s
   if (millis() - stateStartTime > TIMEOUT_SHAKE) {
-    Serial.println("[SHAKE] Timeout - moving to collect");
+    Serial.println("[SHAKE] Timeout - moving to results");
     // Mark any unfinished players as penalty
     for (int i = 0; i < MAX_PLAYERS; i++) {
       if (players[i].joined && !players[i].finished) {
@@ -800,6 +854,7 @@ void handleShake() {
     neoState = NEO_STATUS;
     gameState = STATE_SHOW_RESULTS;
     stateStartTime = 0;
+    return;
   }
 
   // Check if all joined players finished
@@ -818,11 +873,32 @@ void handleShake() {
   }
 }
 
-// --- COLLECT (reaction mode - wait for all results, with timeout) ---
+// --- COLLECT (reaction mode - wait for all results, with yellow warning) ---
 void handleCollect() {
   if (stateStartTime == 0) {
     stateStartTime = millis();
+    collectYellowPhase = false;
     Serial.println("[COLLECT] Waiting for reaction results...");
+  }
+
+  // Yellow warning phase for timed-out players: yellow for 5s then blink red
+  if (collectYellowPhase) {
+    if (millis() - collectYellowStart > TIMEOUT_REACTION) {
+      // Warning over - turn timed-out players' rings to blinking red
+      for (int i = 0; i < MAX_PLAYERS; i++) {
+        if (players[i].joined && players[i].reactionTime == TIME_PENALTY) {
+          uint8_t ring = playerToRing(i);
+          ringOverride[ring] = pixels.Color(255, 0, 0);
+          ringBlink[ring] = true;
+        }
+      }
+      neoState = NEO_STATUS;
+      gameState = STATE_SHOW_RESULTS;
+      stateStartTime = 0;
+      collectYellowPhase = false;
+      Serial.println("[COLLECT] Yellow warning done - disqualified");
+    }
+    return;
   }
 
   // Check if all joined players have finished (results come in via ESP-NOW callback)
@@ -834,27 +910,37 @@ void handleCollect() {
     }
   }
 
-  // Timeout 10s after GO
-  bool timeout = (millis() - stateStartTime > TIMEOUT_REACTION);
-
-  if (timeout) {
-    // Mark remaining as penalty
+  // Timeout after TIMEOUT_REACTION
+  bool timedOut = false;
+  if (!allDone && millis() - stateStartTime > TIMEOUT_REACTION) {
+    // Mark remaining players as penalty with yellow rings (warning)
     for (int i = 0; i < MAX_PLAYERS; i++) {
       if (players[i].joined && !players[i].finished) {
         players[i].finished = true;
         players[i].reactionTime = TIME_PENALTY;
         uint8_t ring = playerToRing(i);
-        ringOverride[ring] = pixels.Color(255, 0, 0);
-        Serial.printf("[COLLECT] Player %d: TIMEOUT\n", i+1);
+        ringOverride[ring] = pixels.Color(255, 255, 0);
+        ringBlink[ring] = false;  // solid yellow during warning
+        Serial.printf("[COLLECT] Player %d: TIMEOUT -> yellow warning\n", i + 1);
       }
     }
+    timedOut = true;
     allDone = true;
   }
 
   if (allDone) {
-    neoState = NEO_STATUS;
-    gameState = STATE_SHOW_RESULTS;
-    stateStartTime = 0;
+    if (timedOut) {
+      // Some players timed out - start yellow warning phase (5s)
+      collectYellowPhase = true;
+      collectYellowStart = millis();
+      neoState = NEO_STATUS;
+      Serial.println("[COLLECT] Starting yellow warning phase (5s)");
+    } else {
+      // All responded before timeout (early-press penalties already blink red)
+      neoState = NEO_STATUS;
+      gameState = STATE_SHOW_RESULTS;
+      stateStartTime = 0;
+    }
   }
 }
 
@@ -926,15 +1012,19 @@ void handleFinalWinner() {
   if (stateStartTime == 0) {
     stateStartTime = millis();
     uint8_t winner = findFinalWinner();
-    Serial.printf("[FINAL] Winner: Player %d\n", winner + 1);
-    sendToDisplay(DISP_FINAL_WINNER, 0, winner + 1);
     neoState = NEO_IDLE_RAINBOW;
     neoOffset = 0;
 
-    // Play winner announcement first, then victory music, then game over
-    // This prevents voices from being cramped at the end after the long victory theme
-    audio.playPlayerWins(winner + 1);
-    audio.queueSound(SND_VICTORY_FANFARE);
+    if (winner != 0xFF) {
+      Serial.printf("[FINAL] Winner: Player %d\n", winner + 1);
+      sendToDisplay(DISP_FINAL_WINNER, 0, winner + 1);
+      // Play winner announcement first, then victory music, then game over
+      audio.playPlayerWins(winner + 1);
+      audio.queueSound(SND_VICTORY_FANFARE);
+    } else {
+      Serial.println("[FINAL] No winner (all scores 0)");
+      sendToDisplay(DISP_FINAL_WINNER, 0, 0);
+    }
     audio.queueSound(SND_GAME_OVER);
   }
 
@@ -961,7 +1051,7 @@ void setup() {
   pixels.show();
 
   // Audio
-  if (audio.begin(1.0)) {
+  if (audio.begin()) {
     Serial.println("Audio ready");
   } else {
     Serial.println("Audio init failed - continuing without audio");

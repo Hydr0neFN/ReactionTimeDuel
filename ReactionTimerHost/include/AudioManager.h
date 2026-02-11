@@ -58,7 +58,7 @@
 // CONFIGURATION
 // =============================================================================
 #define AUDIO_QUEUE_SIZE      8
-#define DEFAULT_VOLUME        4.0   // Max volume (range 0.0 - 4.0)
+#define DEFAULT_VOLUME        100   // Volume percentage (0-100)
 #define DEFAULT_SOUND_GAP     250   // ms gap between queued sounds (adds natural pauses)
 
 // I2S Pins (match schematic - GPIO25/26/27)
@@ -67,6 +67,13 @@
 #define I2S_LRC_PIN           27    // Left/Right clock (Word Select)
 // Use I2S port 1 to avoid conflicts with WiFi/ESP-NOW on port 0
 #define I2S_PORT              1
+
+// Amplifier GAIN pin PWM control
+// Wire this GPIO to amp GAIN pin (add RC filter: 10k resistor + 1uF cap for smooth DC)
+#define AMP_GAIN_PIN          33
+#define AMP_PWM_CHANNEL       2     // LEDC channel (0-15, avoid 0/1 used by I2S)
+#define AMP_PWM_FREQ          25000 // 25kHz - above audible range
+#define AMP_PWM_RESOLUTION    8     // 8-bit (0-255 duty cycle)
 
 // =============================================================================
 // AUDIO MANAGER CLASS
@@ -80,7 +87,7 @@ public:
     queueHead(0),
     queueTail(0),
     isPlaying(false),
-    volume(DEFAULT_VOLUME),
+    volumePercent(DEFAULT_VOLUME),
     soundGap(DEFAULT_SOUND_GAP),
     lastSoundEndTime(0) {}
   
@@ -92,14 +99,12 @@ public:
   }
   
   // Initialize audio system
-  bool begin(float vol = DEFAULT_VOLUME) {
+  bool begin(uint8_t vol = DEFAULT_VOLUME) {
     // Prevent double initialization
     if (out != nullptr) {
       Serial.println(F("Audio already initialized"));
       return true;
     }
-
-    volume = vol;
 
     // Initialize SPIFFS
     if (!SPIFFS.begin(true)) {
@@ -114,7 +119,7 @@ public:
       return false;
     }
     out->SetPinout(I2S_BCLK_PIN, I2S_LRC_PIN, I2S_DOUT_PIN);
-    out->SetGain(volume);
+    out->SetGain(1.0);  // Keep software gain at 1.0, volume controlled by amp PWM
 
     mp3 = new AudioGeneratorMP3();
     if (!mp3) {
@@ -124,8 +129,13 @@ public:
       return false;
     }
 
-    Serial.printf("[AUDIO] Initialized on I2S port %d (DOUT=%d, BCLK=%d, LRC=%d)\n",
-                  I2S_PORT, I2S_DOUT_PIN, I2S_BCLK_PIN, I2S_LRC_PIN);
+    // Setup PWM on amplifier GAIN pin
+    ledcSetup(AMP_PWM_CHANNEL, AMP_PWM_FREQ, AMP_PWM_RESOLUTION);
+    ledcAttachPin(AMP_GAIN_PIN, AMP_PWM_CHANNEL);
+    setVolume(vol);
+
+    Serial.printf("[AUDIO] Initialized on I2S port %d (DOUT=%d, BCLK=%d, LRC=%d, GAIN_PWM=%d)\n",
+                  I2S_PORT, I2S_DOUT_PIN, I2S_BCLK_PIN, I2S_LRC_PIN, AMP_GAIN_PIN);
     return true;
   }
   
@@ -252,12 +262,17 @@ public:
     return isPlaying;
   }
   
-  // Set volume (0.0 - 4.0)
-  void setVolume(float vol) {
-    volume = vol;
-    if (out) {
-      out->SetGain(volume);
-    }
+  // Set volume via amp GAIN pin PWM (0-100%)
+  void setVolume(uint8_t percent) {
+    if (percent > 100) percent = 100;
+    volumePercent = percent;
+    uint32_t duty = ((uint32_t)percent * 255) / 100;
+    ledcWrite(AMP_PWM_CHANNEL, duty);
+    Serial.printf("[AUDIO] Volume: %d%% (PWM duty: %lu/255)\n", percent, duty);
+  }
+
+  uint8_t getVolume() const {
+    return volumePercent;
   }
 
   // Set gap between sounds in ms (default 250ms)
@@ -275,7 +290,7 @@ private:
   uint8_t queueTail;
   
   bool isPlaying;
-  float volume;
+  uint8_t volumePercent;
   unsigned long soundGap;        // ms gap between queued sounds
   unsigned long lastSoundEndTime; // when the last sound finished
 };
