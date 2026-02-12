@@ -254,6 +254,7 @@ void OnDataSent(uint8_t *mac, uint8_t status) {
 uint16_t shakeCount = 0;
 bool shakePeaked = false;           // true = saw peak, waiting for return
 uint32_t shakeStartTime_ms = 0;
+uint8_t shakeLastReported = 0;     // last progress milestone sent (multiple of 5)
 
 // High-pass filter state: Q8 fixed-point low-pass filter on X and Z
 // Subtracting the low-pass (gravity) from raw readings gives the dynamic (shake) component
@@ -265,6 +266,7 @@ void shakeReset() {
   shakeCount = 0;
   shakePeaked = false;
   shakeLpfReady = false;
+  shakeLastReported = 0;
   shakeStartTime_ms = millis();
 }
 
@@ -300,6 +302,15 @@ uint16_t shakeUpdate() {
       shakeCount++;
       shakePeaked = false;
       Serial.printf("[SHAKE] count=%d/%d  energy=%ld\n", shakeCount, shakeTarget, (long)energy);
+
+      // Send progress to host every 5 shakes
+      uint8_t milestone = (shakeCount / 5) * 5;
+      if (milestone > shakeLastReported && milestone < shakeTarget) {
+        shakeLastReported = milestone;
+        uint16_t progressData = ((uint16_t)milestone << 8) | shakeTarget;
+        sendToHost(CMD_SHAKE_PROGRESS, progressData);
+        Serial.printf("[SHAKE] Progress sent: %d/%d\n", milestone, shakeTarget);
+      }
     }
   }
 

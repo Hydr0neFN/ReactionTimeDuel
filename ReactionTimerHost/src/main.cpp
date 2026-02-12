@@ -117,6 +117,8 @@ bool reactionFirstInstruct = false;     // true when instructions were queued th
 
 // Shake countdown tracking
 unsigned long shakeStartTime = 0;   // for center ring countdown
+uint8_t shakeProgress[MAX_PLAYERS] = {0,0,0,0};  // current shake count per player (from CMD_SHAKE_PROGRESS)
+uint8_t shakeTargetCount = 0;       // current round's shake target (10/15/20)
 
 // Countdown
 uint8_t countdownNum = 3;
@@ -232,6 +234,7 @@ void resetRound() {
   for (int i = 0; i < MAX_PLAYERS; i++) {
     players[i].finished = false;
     players[i].reactionTime = 0xFFFF;
+    shakeProgress[i] = 0;
   }
   for (int i = 0; i < 5; i++) { ringOverride[i] = RGB_OFF; ringBlink[i] = false; }
 }
@@ -383,16 +386,37 @@ void updateNeoPixels() {
       if (now - neoLastUpdate > 30) {
         neoLastUpdate = now;
 
+        // Player rings: show green progress bar based on shake count
         for (int r = 0; r < NUM_RINGS; r++) {
           if (r == CENTER_RING) continue;
           if (ringOverride[r] != RGB_OFF) {
-            setRingColor(r, ringOverride[r]);
+            // Player finished: solid green or blinking red (handled by ringOverride)
+            if (ringBlink[r] && !((now / 300) % 2))
+              setRingColor(r, RGB_OFF);
+            else
+              setRingColor(r, ringOverride[r]);
           } else {
-            uint8_t ringHue = (neoOffset + r * 51) & 255;
-            setRingColor(r, wheel(ringHue));
+            // Find which player maps to this ring and show progress
+            int8_t player = -1;
+            for (int p = 0; p < MAX_PLAYERS; p++) {
+              if (players[p].joined && playerToRing(p) == r) {
+                player = p;
+                break;
+              }
+            }
+            if (player >= 0 && shakeTargetCount > 0) {
+              // White background with green progress overlay
+              uint8_t ledsLit = (uint8_t)((uint16_t)shakeProgress[player] * LEDS_PER_RING / shakeTargetCount);
+              if (ledsLit > LEDS_PER_RING) ledsLit = LEDS_PER_RING;
+              int startIdx = r * LEDS_PER_RING;
+              for (int i = 0; i < LEDS_PER_RING; i++) {
+                pixels.SetPixelColor(startIdx + i, (i < ledsLit) ? RGB_GREEN : RGB_WHITE);
+              }
+            } else {
+              setRingColor(r, RGB_OFF);
+            }
           }
         }
-        neoOffset += 3;
 
         unsigned long elapsed = now - shakeStartTime;
         uint8_t ledsRemaining = LEDS_PER_RING - (elapsed / SHAKE_LED_INTERVAL);
@@ -844,6 +868,16 @@ void OnDataRecv(const uint8_t *mac, const uint8_t *data, int len) {
     return;
   }
 
+  // Handle shake progress updates (data_high = count, data_low = target)
+  if (pkt.cmd == CMD_SHAKE_PROGRESS) {
+    if (playerSlot >= 0 && playerSlot < MAX_PLAYERS && gameState == STATE_SHAKE) {
+      shakeProgress[playerSlot] = pkt.data_high;
+      Serial.printf("[SHAKE] Player %d progress: %d/%d\n",
+                    playerSlot + 1, pkt.data_high, pkt.data_low);
+    }
+    return;
+  }
+
   if (pkt.cmd == CMD_REACTION_DONE || pkt.cmd == CMD_SHAKE_DONE) {
     // Check we're in correct state to receive results
     if (gameState != STATE_COLLECT && gameState != STATE_SHAKE) {
@@ -1056,6 +1090,7 @@ void handleCountdown() {
     } else {
       gameMode = MODE_SHAKE;
       targetIdx = getRandomIndex(&lastTargetIdx, NUM_SHAKE_TARGETS);
+      shakeTargetCount = SHAKE_TARGETS[targetIdx];
       Serial.printf("[COUNTDOWN] Round %d: SHAKE, target=%d\n",
                     currentRound, SHAKE_TARGETS[targetIdx]);
       sendToDisplayWithRetry(DISP_SHAKE_MODE, 0, SHAKE_TARGETS[targetIdx]);

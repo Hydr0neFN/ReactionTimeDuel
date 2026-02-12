@@ -64,6 +64,7 @@ typedef struct __attribute__((packed)) {
 #define CMD_REQ_ID        0x0D  // Request to join game
 #define CMD_REACTION_DONE 0x26  // Reaction complete (data = time_ms, 0xFFFF=penalty)
 #define CMD_SHAKE_DONE    0x27  // Shake complete (data = time_ms, 0xFFFF=timeout)
+#define CMD_SHAKE_PROGRESS 0x28 // Shake progress (data_high=count, data_low=target) — sent every 5 shakes
 
 // =============================================================================
 // GAME MODES
