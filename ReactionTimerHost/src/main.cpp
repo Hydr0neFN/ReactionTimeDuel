@@ -329,7 +329,7 @@ void updateNeoPixels() {
         }
 
         uint8_t blinkRing = playerToRing(blinkSlot);
-        setRingColor(blinkRing, neoBlink ? RGB_YELLOW : RGB_OFF);
+        setRingColor(blinkRing, neoBlink ? RGB_GREEN : RGB_OFF);
         pixelsShow();
       }
       break;
