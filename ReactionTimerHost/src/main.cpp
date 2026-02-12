@@ -7,10 +7,10 @@
  * Pins:
  *   GPIO4:  NeoPixel DIN (5 rings x 12 LEDs = 60)
  *   GPIO16: WS2812B Strip DIN (89 LEDs, ambient animations)
- *   GPIO18: CC1 / RST - reset all joysticks
  *   GPIO25: I2S DOUT
  *   GPIO26: I2S BCLK
  *   GPIO27: I2S LRC
+ *   GPIO33: Amplifier GAIN (PWM volume control)
  *
  * Communication:
  *   Joysticks <-> Host : ESP-NOW (wireless)
@@ -20,12 +20,12 @@
  *   IDLE -> JOIN -> COUNTDOWN -> REACTION/SHAKE -> COLLECT -> SHOW_RESULTS -> loop
  *   After 5 rounds: FINAL_WINNER -> IDLE
  *
- * NeoPixel ring layout: [P1][P2][Center][P3][P4]
- *   Ring 0 = Player 1
- *   Ring 1 = Player 2
- *   Ring 2 = Center (decorative)
- *   Ring 3 = Player 3
- *   Ring 4 = Player 4
+ * NeoPixel ring layout (left-to-right): [P1][P2][Center][P3][P4]
+ *   Player 1 = Ring 4
+ *   Player 2 = Ring 3
+ *   Center   = Ring 2 (decorative / shake countdown)
+ *   Player 3 = Ring 1
+ *   Player 4 = Ring 0
  *
  */
 
@@ -45,7 +45,6 @@
 #define PIN_STRIP         16    // WS2812B ambient light strip
 #define STRIP_LED_COUNT   89
 #define STRIP_BRIGHTNESS  80
-// #define PIN_RST           18    // CC1 -> reset joysticks
 
 // =============================================================================
 // ESP-NOW MAC ADDRESSES
@@ -772,12 +771,6 @@ void sendGO() {
   Serial.println("[GO] Sent CMD_GO to all joined joysticks");
 }
 
-// void pulseRST() {
-//   digitalWrite(PIN_RST, HIGH);
-//   delay(10);
-//   digitalWrite(PIN_RST, LOW);
-// }
-
 // =============================================================================
 // ESP-NOW CALLBACKS
 // =============================================================================
@@ -1415,10 +1408,6 @@ void setup() {
   Serial.println("       REACTION TIME DUEL - HOST");
   Serial.printf("            Firmware %s\n", FW_VERSION_STRING);
   Serial.println("========================================");
-
-  // // Hardware control pins
-  // pinMode(PIN_RST, OUTPUT);
-  // digitalWrite(PIN_RST, LOW);
 
   // Game rings (NeoPixelBus RMT ch0 — non-blocking)
   pixels.Begin();

@@ -4,8 +4,8 @@
  * Hardware: ESP-12F on custom PCB
  * MAC Joystick 1: BC:FF:4D:F9:F3:91
  * MAC Joystick 2: BC:FF:4D:F9:AE:29
- * MAC Joystick 3: (fill in)
- * MAC Joystick 4: (fill in)
+ * MAC Joystick 3: BC:FF:4D:F9:AC:42
+ * MAC Joystick 4: BC:FF:4D:F9:BE:62
  *
  * Pins:
  *   GPIO14: Button (SW4) - active LOW with pullup

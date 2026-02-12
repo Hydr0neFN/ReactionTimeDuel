@@ -1,6 +1,6 @@
 /*
  * GameTypes.h - Game Constants and Types
- * ESP32-S3 Master only
+ * ESP32 Host only
  */
 
 #ifndef GAMETYPES_H
@@ -18,7 +18,7 @@
 // TIMING (milliseconds)
 // =============================================================================
 #define TIMEOUT_JOIN      30000   // Max join phase
-#define TIMEOUT_REACTION  5000   // Max time after GO (NOTE: slave uses 10000 - keep in sync)
+#define TIMEOUT_REACTION  5000    // Max time after GO before penalty
 #define TIMEOUT_SHAKE     30000   // Max shake phase
 #define JOIN_IDLE_TIME    5000    // Auto-start after last join
 

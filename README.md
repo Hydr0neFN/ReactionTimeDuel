@@ -23,7 +23,7 @@ After a 3-2-1 countdown, shake your joystick to reach the target count (10, 15, 
 ### Host Controller
 - **5 NeoPixel rings** (12 LEDs each, 60 total) — player status and game animations
 - **89-LED WS2812B ambient strip** — cycles through 6 animations (rainbow, sparkle, meteor, color chase, breathing, fire)
-- **I2S MP3 audio** — 25 sound files on SPIFFS for announcements, countdowns, and effects
+- **I2S MP3 audio** — 24 sound files on SPIFFS for announcements, countdowns, and effects
 - **PWM volume control** — hardware gain via amplifier GAIN pin
 
 ### Joystick Controller
@@ -41,7 +41,7 @@ After a 3-2-1 countdown, shake your joystick to reach the target count (10, 15, 
                          │  NeoPixel Rings ×5   │
                          │  WS2812B Strip (89)  │
                          │  I2S Audio + Amp     │
-                         │  SPIFFS (25 MP3s)    │
+                         │  SPIFFS (24 MP3s)    │
                          └──────────┬───────────┘
                                     │ ESP-NOW (ch 6)
               ┌─────────────────────┼─────────────────────┐
@@ -82,7 +82,7 @@ IDLE ──> JOIN ──> COUNTDOWN ──> REACTION / SHAKE ──> COLLECT ─
 ## Project Structure
 
 ```
-ReactionTimeDual/
+ReactionTimeDuel/
 ├── README.md
 ├── .gitignore
 │
@@ -94,9 +94,8 @@ ReactionTimeDual/
 │   ├── include/
 │   │   ├── Protocol.h              # Packet format, CRC8, device IDs, commands
 │   │   ├── GameTypes.h             # Constants, timing, player struct, NeoPixel config
-│   │   ├── AudioManager.h          # Non-blocking MP3 queue, I2S output, PWM volume
-│   │   └── AudioDefs.h             # Sound ID definitions and SPIFFS file paths
-│   └── data/                       # 25 MP3 files (~792 KB) uploaded to SPIFFS
+│   │   └── AudioManager.h          # Non-blocking MP3 queue, I2S output, PWM volume, sound defs
+│   └── data/                       # 24 MP3 files uploaded to SPIFFS
 │       ├── beep.mp3, click.mp3, error.mp3
 │       ├── get_ready.mp3, react_inst.mp3, will_shake.mp3
 │       ├── player1.mp3 ... player4.mp3
@@ -110,11 +109,8 @@ ReactionTimeDual/
     ├── src/
     │   └── main.cpp                # Joystick state machine, shake detection, timing
     └── include/
-        ├── Protocol.h              # Shared protocol (same commands as host)
-        ├── GameTypes.h             # Shared constants and types
-        ├── AudioDefs.h             # Sound ID definitions
-        ├── AudioManager.h          # Audio support definitions
-        └── DisplayProtocol.h       # Reference protocol for optional display unit
+        ├── Protocol.h              # Shared protocol (core commands, no display cmds)
+        └── GameTypes.h             # Joystick-only constants (timeouts)
 ```
 
 ## Building & Flashing
@@ -184,23 +180,62 @@ All devices communicate over **ESP-NOW on channel 6** with a 7-byte packet:
 
 | Command | Hex | Direction | Description |
 |---------|-----|-----------|-------------|
-| `CMD_REQ_ID` | `0x0D` | Stick → Host | Request to join game |
+| `CMD_REQ_ID` | `0x0D` | Stick → Host | Request to join (data encodes firmware version) |
 | `CMD_OK` | `0x0B` | Host → Stick | Join confirmed (data = slot) |
+| `CMD_ACK` | `0x0E` | Both | Acknowledge previous command |
 | `CMD_GAME_START` | `0x21` | Host → Stick | Round start (high=mode, low=param) |
 | `CMD_GO` | `0x22` | Host → Stick | GO signal — start timing |
+| `CMD_VIBRATE` | `0x23` | Host → Stick | Vibrate (`0xFF`=GO, else duration x 10ms) |
+| `CMD_IDLE` | `0x24` | Host → Stick | Return to idle state |
 | `CMD_COUNTDOWN` | `0x25` | Host → Stick | Countdown tick (3, 2, 1) |
 | `CMD_REACTION_DONE` | `0x26` | Stick → Host | Reaction time in ms (`0xFFFF` = penalty) |
 | `CMD_SHAKE_DONE` | `0x27` | Stick → Host | Shake time in ms (`0xFFFF` = timeout) |
+| `CMD_SHAKE_PROGRESS` | `0x28` | Stick → Host | Shake milestone (every 5 shakes) |
+
+The host also sends display commands (`0x30`-`0x3E`) to an optional display unit for real-time game status.
 
 ## Technical Highlights
 
 - **Microsecond Reaction Timing** — Button press captured via `IRAM_ATTR` interrupt on falling edge; time calculated as `micros()` delta from GO signal
 - **Non-blocking Architecture** — NeoPixelBus with ESP32 RMT DMA for glitch-free LED output; audio queue with configurable gap between sounds; no `delay()` in game loop
 - **High-pass Shake Detection** — EMA low-pass filter (alpha=1/64) removes gravity; hysteresis state machine counts full push-return cycles on X+Z axes
+- **Real-time Shake Progress** — Joysticks report milestones every 5 shakes via `CMD_SHAKE_PROGRESS`, enabling live progress bar animation on the host's NeoPixel rings
 - **Shuffle Bag Mode Selection** — Both Reaction and Shake modes appear before either repeats, preventing streaks
 - **Ambient Light Strip** — 89-LED WS2812B strip cycles through 6 procedural animations (rainbow, sparkle, meteor rain, color chase, breathing, fire) on a second RMT channel
 - **PWM Volume Control** — Amplifier GAIN pin driven by 25kHz LEDC PWM for smooth analog volume adjustment
-- **Accessibility** — Full audio narration (25 MP3 files) covering all game states, player announcements, and instructions
+- **Firmware Versioning** — Protocol includes firmware version (V3.0.0) in join packets for compatibility checking
+- **Reliable Delivery** — Host uses an ACK table with up to 3 retries (50ms interval) for critical commands
+- **Accessibility** — Full audio narration (24 MP3 files) covering all game states, player announcements, and instructions
+
+## Host vs Slave Firmware
+
+The host (ESP32) and slave joysticks (ESP8266) share `Protocol.h` for the packet format and command definitions. Each has its own `GameTypes.h` tailored to its role:
+
+| | Host (ESP32) | Slave (ESP8266) |
+|---|---|---|
+| **Role** | Game orchestrator, LED/audio output | Input device, sends results |
+| **Clock** | 240 MHz | 160 MHz |
+| **Protocol.h** | Includes display commands (`DISP_*`) | Core commands only |
+| **NeoPixel modes** | 8 modes (rainbow, status, blink slot, shake countdown, etc.) | 6 modes (no blink slot / shake countdown) |
+| **Ring mapping** | Reversed: P1=Ring4, P2=Ring3, P3=Ring1, P4=Ring0 | Sequential: P1=Ring0, P2=Ring1, center=Ring2, P3=Ring3, P4=Ring4 |
+| **State machine** | 8 game states with full round management | 4 joystick states (idle, waiting GO, timing/shaking, done) |
+| **Audio** | Non-blocking MP3 queue with I2S + PWM volume | No audio hardware |
+| **Peripherals** | NeoPixel rings, WS2812B strip, I2S DAC, amplifier | Button, MPU-6050, vibration motor |
+
+### Joystick State Machine
+
+Each joystick follows this per-round lifecycle:
+
+```
+JS_IDLE ──> JS_WAITING_GO ──> JS_REACTION_TIMING  ──> JS_DONE
+                          └──> JS_SHAKE_COUNTING   ──> JS_DONE
+```
+
+- **JS_IDLE** — Debounced button poll; press sends `CMD_REQ_ID` with firmware version
+- **JS_WAITING_GO** — Received `CMD_GAME_START`; waits for `CMD_GO`
+- **JS_REACTION_TIMING** — `micros()` timer running; button interrupt captures timestamp
+- **JS_SHAKE_COUNTING** — MPU-6050 high-pass filter counts full push-return cycles; reports progress every 5 shakes
+- **JS_DONE** — Result sent; waits for next round or idle command
 
 ## Dependencies
 

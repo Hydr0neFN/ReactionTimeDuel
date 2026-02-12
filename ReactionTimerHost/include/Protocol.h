@@ -1,6 +1,6 @@
 /*
  * Protocol.h - Reaction Time Duel Communication Protocol
- * Shared between ESP32-S3 Master and ESP8266 Joysticks
+ * Shared between ESP32 Host and ESP8266 Joysticks
  *
  * Packet Format (7 bytes):
  * [START][DEST_ID][SRC_ID][CMD][DATA_HIGH][DATA_LOW][CRC8]
