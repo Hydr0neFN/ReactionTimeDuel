@@ -41,6 +41,7 @@ typedef struct __attribute__((packed)) {
 // COMMANDS: Host → Joysticks
 // =============================================================================
 #define CMD_OK            0x0B  // Acknowledge (join confirmed)
+#define CMD_ACK           0x0E  // ACK: data_low = cmd being acknowledged
 #define CMD_GAME_START    0x21  // Start round (data_high=mode, data_low=param)
 #define CMD_GO            0x22  // GO signal - start timing now!
 #define CMD_VIBRATE       0x23  // Vibrate (0xFF=GO signal, else duration×10ms)

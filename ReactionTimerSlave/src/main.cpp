@@ -194,6 +194,7 @@ void OnDataRecv(uint8_t *mac, uint8_t *data, uint8_t len) {
       joinSent = false;  // allow new join request
       g_go_received = false;
       g_button_pressed = false;
+      sendToHost(CMD_ACK, CMD_IDLE);
       Serial.println("[CMD] IDLE");
       break;
 
@@ -211,6 +212,7 @@ void OnDataRecv(uint8_t *mac, uint8_t *data, uint8_t len) {
       jsState = JS_WAITING_GO;
       g_go_received = false;
       g_button_pressed = false;
+      sendToHost(CMD_ACK, CMD_GAME_START);
       Serial.printf("[CMD] GAME_START mode=%d param=%d\n", currentMode, shakeTarget);
       break;
 
@@ -223,11 +225,13 @@ void OnDataRecv(uint8_t *mac, uint8_t *data, uint8_t len) {
     case CMD_COUNTDOWN:
       // Haptic countdown pulse: 200ms vibrate
       vibStart(200);
+      sendToHost(CMD_ACK, CMD_COUNTDOWN);
       Serial.printf("[CMD] COUNTDOWN %d\n", pkt.data_low);
       break;
 
     case CMD_GO:
       // GO signal received via ESP-NOW - start timing!
+      sendToHost(CMD_ACK, CMD_GO);
       if (jsState == JS_WAITING_GO) {
         handleGO();  // sets g_go_time_us and g_go_received
         Serial.println("[CMD] GO received!");
