@@ -1,0 +1,11 @@
+{
+	"folders": [
+		{
+			"path": "ReactionTimerHost"
+		},
+		{
+			"path": "ReactionTimerSlave"
+		}
+	],
+	"settings": {}
+}
