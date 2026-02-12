@@ -1,0 +1,10 @@
+Slave : 
+1 BC:FF:4D:F9:F3:91
+2 BC:FF:4D:F9:AE:29
+
+Host
+ESP32 Station MAC Address: 88:57:21:B3:05:AC
+ESP32 SoftAP MAC Address: 88:57:21:B3:05:AD
+Display
+ESP32 Station MAC Address: D0:CF:13:01:D1:A4
+ESP32 SoftAP MAC Address: D2:CF:13:01:D1:A4
