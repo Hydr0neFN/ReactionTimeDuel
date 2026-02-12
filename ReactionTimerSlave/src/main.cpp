@@ -1,5 +1,5 @@
 /*
- * joystick_test.cpp - ESP8266 Joystick - Full Game Firmware
+ * Reaction Time Duel - ESP8266 Joystick - Full Game Firmware
  *
  * Hardware: ESP-12F on custom PCB
  * MAC Joystick 1: BC:FF:4D:F9:F3:91
@@ -28,6 +28,9 @@
  *   CMD_GO received -> start timing + vibrate motor (haptic GO cue)
  *   CMD_COUNTDOWN -> vibrate briefly (haptic countdown cue)
  *   CMD_REACTION_DONE / CMD_SHAKE_DONE sent back with time_ms
+ *
+ * NOTE FOR AI AGENT: When modifying this file, increment FW_VERSION_PATCH
+ * (or MINOR/MAJOR as appropriate) in Protocol.h and update FW_VERSION_STRING.
  */
 
 #include <Arduino.h>
@@ -340,8 +343,10 @@ void runJoystick() {
       if (currentButton == LOW && (now - lastButtonChange) > DEBOUNCE_MS && !joinSent) {
         // Confirmed press - send join request if not already assigned
         if (assignedSlot == 0) {
-          sendToHost(CMD_REQ_ID, 0);
-          Serial.println("[JOIN] Button pressed - sending CMD_REQ_ID");
+          // Send version in CMD_REQ_ID: data_high = (MAJOR<<4)|MINOR, data_low = PATCH
+          uint16_t versionData = ((uint16_t)((FW_VERSION_MAJOR << 4) | FW_VERSION_MINOR) << 8) | FW_VERSION_PATCH;
+          sendToHost(CMD_REQ_ID, versionData);
+          Serial.printf("[JOIN] Button pressed - sending CMD_REQ_ID (firmware %s)\n", FW_VERSION_STRING);
         } else {
           Serial.printf("[JOIN] Already assigned to slot %d\n", assignedSlot);
         }
@@ -434,7 +439,10 @@ void runJoystick() {
 // =============================================================================
 void setup() {
   Serial.begin(115200);
-  Serial.println("\n=== REACTION REIMAGINED - JOYSTICK ===");
+  Serial.println("\n========================================");
+  Serial.println("     REACTION TIME DUEL - JOYSTICK");
+  Serial.printf("            Firmware %s\n", FW_VERSION_STRING);
+  Serial.println("========================================");
   Serial.printf("My ID: 0x%02X\n", MY_ID);
 
   // Motor output

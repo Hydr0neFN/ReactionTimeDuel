@@ -1,5 +1,5 @@
 /*
- * host_test.cpp - ESP32 Host - Full Game Logic
+ * Reaction Time Duel - ESP32 Host - Full Game Logic
  *
  * Hardware: ESP32 DevKit-C (ZY-ESP32)
  * MAC: 88:57:21:B3:05:AC
@@ -26,6 +26,9 @@
  *   Ring 2 = Center (decorative)
  *   Ring 3 = Player 3
  *   Ring 4 = Player 4
+ *
+ * NOTE FOR AI AGENT: When modifying this file, increment FW_VERSION_PATCH
+ * (or MINOR/MAJOR as appropriate) in Protocol.h and update FW_VERSION_STRING.
  */
 
 #include <Arduino.h>
@@ -780,6 +783,14 @@ void OnDataRecv(const uint8_t *mac, const uint8_t *data, int len) {
 
   // Handle join request during JOIN phase
   if (pkt.cmd == CMD_REQ_ID) {
+    // Decode joystick firmware version from data field
+    // data_high = (MAJOR<<4)|MINOR, data_low = PATCH
+    uint8_t jsMajor = (pkt.data_high >> 4) & 0x0F;
+    uint8_t jsMinor = pkt.data_high & 0x0F;
+    uint8_t jsPatch = pkt.data_low;
+    Serial.printf("[JOIN] Joystick %d firmware: V%d.%d.%d\n",
+                  stickIdx + 1, jsMajor, jsMinor, jsPatch);
+
     if (gameState == STATE_JOIN) {
       // Check if this joystick already claimed a slot
       if (stickClaimed[stickIdx]) {
@@ -810,8 +821,8 @@ void OnDataRecv(const uint8_t *mac, const uint8_t *data, int len) {
       // Send ACK to joystick (with slot number in data)
       espnowSend((uint8_t*)mac, src, CMD_OK, slot + 1);
 
-      Serial.printf("[JOIN] Joystick %d claimed Player %d slot! Total: %d\n",
-                    stickIdx + 1, slot + 1, joinedCount);
+      Serial.printf("[JOIN] Joystick %d (V%d.%d.%d) claimed Player %d slot! Total: %d\n",
+                    stickIdx + 1, jsMajor, jsMinor, jsPatch, slot + 1, joinedCount);
 
       // Advance to next slot immediately
       promptStartTime = 0;  // trigger immediate advance in handleJoin
@@ -1352,7 +1363,10 @@ void handleFinalWinner() {
 // =============================================================================
 void setup() {
   Serial.begin(115200);
-  Serial.println("\n=== REACTION REIMAGINED - HOST ===");
+  Serial.println("\n========================================");
+  Serial.println("       REACTION TIME DUEL - HOST");
+  Serial.printf("            Firmware %s\n", FW_VERSION_STRING);
+  Serial.println("========================================");
 
   // // Hardware control pins
   // pinMode(PIN_RST, OUTPUT);
