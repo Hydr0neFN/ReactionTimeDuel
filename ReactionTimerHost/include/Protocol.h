@@ -49,7 +49,7 @@ typedef struct __attribute__((packed)) {
 #define ID_BROADCAST      0xFF
 
 // =============================================================================
-// COMMANDS: Host → Display (UART)
+// COMMANDS: Host → Display
 // =============================================================================
 #define DISP_IDLE           0x30  // Show idle/welcome screen
 #define DISP_PROMPT_JOIN    0x31  // Show "Press to join" prompt
