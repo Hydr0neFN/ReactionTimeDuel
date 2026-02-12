@@ -86,6 +86,10 @@ Player players[MAX_PLAYERS];
 uint8_t joinedCount = 0;
 uint8_t currentRound = 0;
 
+// Deuce mode
+bool inDeuce = false;
+uint8_t deucePlayer[2] = {0xFF, 0xFF};  // indices (0-3) of the two tied players
+
 // Join phase: slot-to-joystick mapping (which joystick claimed which player slot)
 // slotToStick[slot] = joystick ID (ID_STICK1-4), or 0xFF if unclaimed
 uint8_t slotToStick[MAX_PLAYERS] = {0xFF, 0xFF, 0xFF, 0xFF};
@@ -194,6 +198,36 @@ uint8_t getNextGameMode() {
   return modeBag[modeBagIdx++];
 }
 
+// Is this player active in the current round? (filters for deuce)
+bool isActivePlayer(uint8_t i) {
+  if (!players[i].joined || slotToStick[i] == 0xFF) return false;
+  if (inDeuce) return (i == deucePlayer[0] || i == deucePlayer[1]);
+  return true;
+}
+
+// Check if exactly 2 players share the highest score (deuce condition)
+bool checkDeuce() {
+  uint8_t maxScore = 0;
+  for (int i = 0; i < MAX_PLAYERS; i++) {
+    if (players[i].joined && players[i].score > maxScore)
+      maxScore = players[i].score;
+  }
+  uint8_t count = 0;
+  uint8_t tied[2] = {0xFF, 0xFF};
+  for (int i = 0; i < MAX_PLAYERS; i++) {
+    if (players[i].joined && players[i].score == maxScore) {
+      if (count < 2) tied[count] = i;
+      count++;
+    }
+  }
+  if (count == 2) {
+    deucePlayer[0] = tied[0];
+    deucePlayer[1] = tied[1];
+    return true;
+  }
+  return false;
+}
+
 // Forward declaration for ACK tracking (full implementation below ESP-NOW send section)
 #define ACK_MAX_RETRIES    3
 #define ACK_RETRY_INTERVAL 50   // ms
@@ -225,6 +259,9 @@ void resetPlayers() {
   modeBagIdx = 2;  // reset shuffle bag for new game
   reactionInstructPlayed = false;  // reset instruction flag for new game
   shakeInstructPlayed = false;
+  inDeuce = false;
+  deucePlayer[0] = 0xFF;
+  deucePlayer[1] = 0xFF;
   for (int i = 0; i < 5; i++) { ringOverride[i] = RGB_OFF; ringBlink[i] = false; }
   for (int i = 0; i < ACK_SLOT_COUNT; i++) pendingAcks[i].waiting = false;
 }
@@ -242,7 +279,7 @@ uint8_t findRoundWinner() {
   uint8_t winner = 0xFF;
   uint16_t best = 0xFFFF;
   for (int i = 0; i < MAX_PLAYERS; i++) {
-    if (players[i].joined && players[i].finished && players[i].reactionTime < best) {
+    if (isActivePlayer(i) && players[i].finished && players[i].reactionTime < best) {
       best = players[i].reactionTime;
       winner = i;
     }
@@ -714,10 +751,10 @@ void sendWithRetry(uint8_t destId, uint8_t cmd, uint16_t data) {
   Serial.printf("[ACK] Sent cmd=0x%02X to 0x%02X (retries=%d)\n", cmd, destId, pa.retries);
 }
 
-// Send a critical command to all joined joysticks (unicast each for ACK tracking)
+// Send a critical command to all active joysticks (respects deuce filtering)
 void sendToJoysticksWithRetry(uint8_t cmd, uint16_t data) {
   for (int i = 0; i < MAX_PLAYERS; i++) {
-    if (slotToStick[i] != 0xFF) {
+    if (isActivePlayer(i)) {
       sendWithRetry(slotToStick[i], cmd, data);
     }
   }
@@ -1215,9 +1252,9 @@ void handleShake() {
   // Timeout after 30s
   if (millis() - stateStartTime > TIMEOUT_SHAKE) {
     Serial.println("[SHAKE] Timeout - moving to results");
-    // Mark any unfinished players as penalty
+    // Mark any unfinished active players as penalty
     for (int i = 0; i < MAX_PLAYERS; i++) {
-      if (players[i].joined && !players[i].finished) {
+      if (isActivePlayer(i) && !players[i].finished) {
         players[i].finished = true;
         players[i].reactionTime = TIME_PENALTY;
         uint8_t ring = playerToRing(i);
@@ -1230,10 +1267,10 @@ void handleShake() {
     return;
   }
 
-  // Check if all joined players finished
+  // Check if all active players finished
   bool allDone = true;
   for (int i = 0; i < MAX_PLAYERS; i++) {
-    if (players[i].joined && !players[i].finished) {
+    if (isActivePlayer(i) && !players[i].finished) {
       allDone = false;
       break;
     }
@@ -1254,10 +1291,10 @@ void handleCollect() {
     Serial.println("[COLLECT] Waiting for reaction results...");
   }
 
-  // Check if all joined players have finished (results come in via ESP-NOW callback)
+  // Check if all active players have finished (results come in via ESP-NOW callback)
   bool allDone = true;
   for (int i = 0; i < MAX_PLAYERS; i++) {
-    if (players[i].joined && !players[i].finished) {
+    if (isActivePlayer(i) && !players[i].finished) {
       allDone = false;
       break;
     }
@@ -1268,7 +1305,7 @@ void handleCollect() {
     if (allDone || millis() - collectYellowStart > TIMEOUT_REACTION) {
       // Warning expired or all responded - disqualify any still unfinished
       for (int i = 0; i < MAX_PLAYERS; i++) {
-        if (players[i].joined && !players[i].finished) {
+        if (isActivePlayer(i) && !players[i].finished) {
           players[i].finished = true;
           players[i].reactionTime = TIME_PENALTY;
           uint8_t ring = playerToRing(i);
@@ -1297,7 +1334,7 @@ void handleCollect() {
   // Players are NOT marked as finished yet - they can still react!
   if (millis() - stateStartTime > TIMEOUT_REACTION) {
     for (int i = 0; i < MAX_PLAYERS; i++) {
-      if (players[i].joined && !players[i].finished) {
+      if (isActivePlayer(i) && !players[i].finished) {
         uint8_t ring = playerToRing(i);
         ringOverride[ring] = RGB_YELLOW;
         ringBlink[ring] = false;  // solid yellow during warning
@@ -1319,10 +1356,10 @@ void handleShowResults() {
     stateStartTime = millis();
     resultsPhase2 = false;
 
-    // Phase 1: Send all reaction times to display
+    // Phase 1: Send reaction times to display (only active players)
     const uint8_t timeCmds[] = {DISP_TIME_P1, DISP_TIME_P2, DISP_TIME_P3, DISP_TIME_P4};
     for (int i = 0; i < MAX_PLAYERS; i++) {
-      if (players[i].joined) {
+      if (isActivePlayer(i)) {
         uint16_t t = players[i].reactionTime;
         sendToDisplay(timeCmds[i], (t >> 8) & 0xFF, t & 0xFF);
         delay(10);
@@ -1364,8 +1401,35 @@ void handleShowResults() {
 
   // After 6 seconds total (3s times + 3s scores), transition to next state
   if (millis() - stateStartTime > 6000) {
-    if (currentRound >= TOTAL_ROUNDS) {
-      gameState = STATE_FINAL_WINNER;
+    if (inDeuce) {
+      // Check if either deuce player has enough lead
+      int diff = abs((int)players[deucePlayer[0]].score - (int)players[deucePlayer[1]].score);
+      if (diff >= DEUCE_LEAD) {
+        Serial.printf("[DEUCE] Lead of %d reached - going to final winner\n", diff);
+        gameState = STATE_FINAL_WINNER;
+      } else {
+        Serial.printf("[DEUCE] Score diff=%d, need %d - continuing\n", diff, DEUCE_LEAD);
+        gameState = STATE_COUNTDOWN;
+      }
+    } else if (currentRound >= TOTAL_ROUNDS) {
+      if (checkDeuce()) {
+        // Deuce detected — enter deuce mode
+        inDeuce = true;
+        Serial.printf("[DEUCE] Deuce between Player %d and Player %d!\n",
+                      deucePlayer[0] + 1, deucePlayer[1] + 1);
+        sendToDisplayWithRetry(DISP_DEUCE, deucePlayer[0] + 1, deucePlayer[1] + 1);
+        // Send CMD_IDLE to non-deuce joysticks
+        for (int i = 0; i < MAX_PLAYERS; i++) {
+          if (players[i].joined && slotToStick[i] != 0xFF &&
+              i != deucePlayer[0] && i != deucePlayer[1]) {
+            sendWithRetry(slotToStick[i], CMD_IDLE, 0);
+            Serial.printf("[DEUCE] Sent CMD_IDLE to Player %d (out of deuce)\n", i + 1);
+          }
+        }
+        gameState = STATE_COUNTDOWN;
+      } else {
+        gameState = STATE_FINAL_WINNER;
+      }
     } else {
       gameState = STATE_COUNTDOWN;
     }

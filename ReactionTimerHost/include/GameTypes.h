@@ -13,6 +13,7 @@
 // =============================================================================
 #define MAX_PLAYERS       4
 #define TOTAL_ROUNDS      5
+#define DEUCE_LEAD        3     // Points lead required to win in deuce
 
 // =============================================================================
 // TIMING (milliseconds)
