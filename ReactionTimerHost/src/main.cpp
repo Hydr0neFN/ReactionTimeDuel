@@ -93,6 +93,8 @@ uint8_t slotToStick[MAX_PLAYERS] = {0xFF, 0xFF, 0xFF, 0xFF};
 uint8_t stickClaimed[MAX_PLAYERS] = {0, 0, 0, 0};  // which joysticks have already claimed a slot
 uint8_t currentPromptSlot = 0;      // which player slot we're currently prompting (0-3)
 unsigned long promptStartTime = 0;  // when current prompt started
+bool joinComplete = false;          // true = enough players, waiting 1s before countdown
+unsigned long joinCompleteTime = 0; // when join completed (for 1s color-display delay)
 
 // Round config
 uint8_t gameMode = MODE_REACTION;   // current round mode
@@ -950,12 +952,24 @@ void startPromptSlot(uint8_t slot) {
 void handleJoin() {
   if (stateStartTime == 0) {
     stateStartTime = millis();
+    joinComplete = false;
     // Clear all ring overrides
     for (int i = 0; i < 5; i++) ringOverride[i] = RGB_OFF;
 
     // Start with Player 1 prompt
     startPromptSlot(0);
     Serial.println("[STATE] JOIN - sequential player prompting");
+  }
+
+  // Waiting 1s after join complete so players can see their assigned colors
+  if (joinComplete) {
+    if (millis() - joinCompleteTime > 1000) {
+      audio.queueSound(SND_GET_READY);
+      gameState = STATE_COUNTDOWN;
+      stateStartTime = 0;
+      countdownNum = 3;
+    }
+    return;
   }
 
   // Check if current slot has timed out or was just claimed (promptStartTime = 0)
@@ -980,10 +994,11 @@ void handleJoin() {
       }
       Serial.printf("[JOIN] Starting with %d players. Map: [0x%02X,0x%02X,0x%02X,0x%02X]\n",
                     joinedCount, slotToStick[0], slotToStick[1], slotToStick[2], slotToStick[3]);
-      audio.queueSound(SND_GET_READY);
-      gameState = STATE_COUNTDOWN;
-      stateStartTime = 0;
-      countdownNum = 3;
+      // Show all joined player colors for 1s before starting
+      neoState = NEO_STATUS;
+      audio.stop();
+      joinComplete = true;
+      joinCompleteTime = millis();
       return;
     }
 
@@ -991,14 +1006,14 @@ void handleJoin() {
     startPromptSlot(nextSlot);
   }
 
-  // If all 4 players joined, proceed immediately
+  // If all 4 players joined, show colors for 1s before starting
   if (joinedCount >= MAX_PLAYERS) {
     Serial.printf("[JOIN] All %d players joined! Map: [0x%02X,0x%02X,0x%02X,0x%02X]\n",
                   joinedCount, slotToStick[0], slotToStick[1], slotToStick[2], slotToStick[3]);
-    audio.queueSound(SND_GET_READY);
-    gameState = STATE_COUNTDOWN;
-    stateStartTime = 0;
-    countdownNum = 3;
+    neoState = NEO_STATUS;
+    audio.stop();
+    joinComplete = true;
+    joinCompleteTime = millis();
   }
 }
 
