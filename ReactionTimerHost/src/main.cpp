@@ -1174,7 +1174,6 @@ void handleReaction() {
     if (millis() - stateStartTime > announceDelay) {
       reactionAnnouncementDone = true;
       stateStartTime = millis();  // reset for random delay timing
-      sendToDisplayWithRetry(DISP_GO, 0, 0); // display shows "GO" meaning "get ready, watch LEDs"
       Serial.printf("[REACTION] Announcements done, random delay=%dms\n", REACT_DELAYS[delayIdx]);
     }
     return;
@@ -1184,6 +1183,9 @@ void handleReaction() {
   if (millis() - stateStartTime >= REACT_DELAYS[delayIdx]) {
     // FREEZE neopixels - this is the visual "press now" cue
     freezeNeoPixels();
+
+    // Display GO - synced with neopixels and joysticks
+    sendToDisplayWithRetry(DISP_GO, 0, 0);
 
     // Hardware GO pulse to all joysticks (starts their timer + vibration)
     sendGO();
