@@ -5,8 +5,6 @@
  * Packet Format (7 bytes):
  * [START][DEST_ID][SRC_ID][CMD][DATA_HIGH][DATA_LOW][CRC8]
  *
- * NOTE FOR AI AGENT: When modifying any code in this project, increment
- * FW_VERSION_PATCH (or MINOR/MAJOR as appropriate) below.
  */
 
 #ifndef PROTOCOL_H

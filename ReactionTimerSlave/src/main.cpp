@@ -29,8 +29,6 @@
  *   CMD_COUNTDOWN -> vibrate briefly (haptic countdown cue)
  *   CMD_REACTION_DONE / CMD_SHAKE_DONE sent back with time_ms
  *
- * NOTE FOR AI AGENT: When modifying this file, increment FW_VERSION_PATCH
- * (or MINOR/MAJOR as appropriate) in Protocol.h and update FW_VERSION_STRING.
  */
 
 #include <Arduino.h>

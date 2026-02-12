@@ -27,8 +27,6 @@
  *   Ring 3 = Player 3
  *   Ring 4 = Player 4
  *
- * NOTE FOR AI AGENT: When modifying this file, increment FW_VERSION_PATCH
- * (or MINOR/MAJOR as appropriate) in Protocol.h and update FW_VERSION_STRING.
  */
 
 #include <Arduino.h>
@@ -974,10 +972,10 @@ void handleJoin() {
     if (nextSlot >= MAX_PLAYERS) {
       // All slots prompted - check if we have enough players
       if (joinedCount < 2) {
-        Serial.println("[JOIN] Not enough players, back to IDLE");
-        audio.queueSound(SND_ERROR_TONE);
-        gameState = STATE_IDLE;
-        stateStartTime = 0;
+        Serial.println("[JOIN] Not enough players, restarting join prompts");
+        // Silently cycle back to P1 without error sound or idle screen
+        currentPromptSlot = 0;
+        startPromptSlot(0);
         return;
       }
       Serial.printf("[JOIN] Starting with %d players. Map: [0x%02X,0x%02X,0x%02X,0x%02X]\n",
