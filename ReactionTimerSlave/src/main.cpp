@@ -41,7 +41,7 @@
 // CONFIGURATION - MY_ID set via platformio.ini build flag
 // =============================================================================
 #ifndef MY_ID
-#define MY_ID             ID_STICK2
+#define MY_ID             ID_STICK1
 #endif
 
 // =============================================================================
@@ -59,9 +59,10 @@
 #define MPU_REG_PWR_MGMT1 0x6B
 #define MPU_REG_ACCEL_XH  0x3B
 
-// Shake detection tuning (from working test)
-#define SHAKE_BASE_G      16384
-#define SHAKE_THRESHOLD   ((SHAKE_BASE_G + 6000) * 3)  // magnitude threshold
+// Shake detection tuning (X+Z axes only, high-pass filtered to remove gravity)
+// A shake = full cycle: dynamic energy exceeds HIGH, then returns below LOW
+#define SHAKE_THRESHOLD_HIGH  6000   // dynamic XZ energy to detect peak (push)
+#define SHAKE_THRESHOLD_LOW   2000   // dynamic XZ energy to detect return (pull-back)
 
 // =============================================================================
 // ESP-NOW
@@ -246,26 +247,55 @@ void OnDataSent(uint8_t *mac, uint8_t status) {
 // SHAKE COUNTING (non-blocking, called in loop during JS_SHAKE_COUNTING)
 // =============================================================================
 uint16_t shakeCount = 0;
-bool shakeWasAbove = false;
+bool shakePeaked = false;           // true = saw peak, waiting for return
 uint32_t shakeStartTime_ms = 0;
+
+// High-pass filter state: Q8 fixed-point low-pass filter on X and Z
+// Subtracting the low-pass (gravity) from raw readings gives the dynamic (shake) component
+int32_t shakeLpfAx = 0;
+int32_t shakeLpfAz = 0;
+bool shakeLpfReady = false;
 
 void shakeReset() {
   shakeCount = 0;
-  shakeWasAbove = false;
+  shakePeaked = false;
+  shakeLpfReady = false;
   shakeStartTime_ms = millis();
 }
 
 // Returns: 0 = still counting, TIME_PENALTY = timeout, >0 = completion time in ms
 uint16_t shakeUpdate() {
   int16_t ax, ay, az;
-  if (mpuReadAccel(ax, ay, az)) {
-    int32_t mag = (int32_t)abs(ax) + abs(ay) + abs(az);
-    bool above = mag > SHAKE_THRESHOLD;
-    if (above && !shakeWasAbove) {
-      shakeCount++;
-      Serial.printf("[SHAKE] count=%d/%d\n", shakeCount, shakeTarget);
+  if (!mpuReadAccel(ax, ay, az)) return 0;
+
+  if (!shakeLpfReady) {
+    // Seed the low-pass filter with current reading (Q8 fixed-point)
+    shakeLpfAx = (int32_t)ax << 8;
+    shakeLpfAz = (int32_t)az << 8;
+    shakeLpfReady = true;
+    return 0;
+  }
+
+  // Update low-pass filter: EMA with alpha = 1/64 (tracks slow gravity changes only)
+  shakeLpfAx += (((int32_t)ax << 8) - shakeLpfAx) >> 6;
+  shakeLpfAz += (((int32_t)az << 8) - shakeLpfAz) >> 6;
+
+  // High-pass = raw - low-pass → removes gravity, keeps dynamic shake energy
+  int32_t dynamicX = (int32_t)ax - (shakeLpfAx >> 8);
+  int32_t dynamicZ = (int32_t)az - (shakeLpfAz >> 8);
+  int32_t energy = abs(dynamicX) + abs(dynamicZ);
+
+  // Hysteresis state machine: peak (push) → return (pull-back) = one shake
+  if (!shakePeaked) {
+    if (energy > SHAKE_THRESHOLD_HIGH) {
+      shakePeaked = true;
     }
-    shakeWasAbove = above;
+  } else {
+    if (energy < SHAKE_THRESHOLD_LOW) {
+      shakeCount++;
+      shakePeaked = false;
+      Serial.printf("[SHAKE] count=%d/%d  energy=%ld\n", shakeCount, shakeTarget, (long)energy);
+    }
   }
 
   // Check if target reached
