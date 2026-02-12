@@ -54,13 +54,14 @@ typedef struct __attribute__((packed)) {
 #define DISP_ROUND_WINNER   0x3A  // Round winner (data_low = player 1-4, 0=none)
 #define DISP_SCORES         0x3B  // Score update (data_high = player, data_low = score)
 #define DISP_FINAL_WINNER   0x3C  // Final winner (data_low = player 1-4)
-#define DISP_PLAYER_READY   0x3D  // Player joined/ready (data_low = player 1-4, data_high = 1=joined, 0=left)
+#define DISP_PLAYER_READY   0x3D  // Player joined/ready (data_high = player slot 1-4, data_low = joystick ID)
 #define DISP_PLAYER_PROMPT  0x3E  // Prompt player to join (data_low = player 1-4, blink on display)
 
 // =============================================================================
 // COMMANDS: Host → Joysticks
 // =============================================================================
 #define CMD_OK            0x0B  // Acknowledge (join confirmed)
+#define CMD_ACK           0x0E  // ACK: data_low = cmd being acknowledged
 #define CMD_GAME_START    0x21  // Start round (data_high=mode, data_low=param)
 #define CMD_GO            0x22  // GO signal - start timing now!
 #define CMD_VIBRATE       0x23  // Vibrate (0xFF=GO signal, else duration×10ms)

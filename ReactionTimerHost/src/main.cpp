@@ -148,8 +148,20 @@ bool ringBlink[5] = {false,false,false,false,false};  // true = blink this ring 
 static const RgbColor RGB_OFF(0);
 static const RgbColor RGB_RED(255, 0, 0);
 static const RgbColor RGB_GREEN(0, 255, 0);
+static const RgbColor RGB_BLUE(0, 0, 255);
 static const RgbColor RGB_YELLOW(255, 255, 0);
 static const RgbColor RGB_WHITE(255, 255, 255);
+
+// Joystick identity colors (by joystick ID: 1=White, 2=Blue, 3=Red, 4=Yellow)
+RgbColor stickColor(uint8_t stickId) {
+  switch (stickId) {
+    case ID_STICK1: return RGB_WHITE;
+    case ID_STICK2: return RGB_BLUE;
+    case ID_STICK3: return RGB_RED;
+    case ID_STICK4: return RGB_YELLOW;
+    default:        return RGB_GREEN;
+  }
+}
 
 // =============================================================================
 // HELPERS (playerToRing is in GameTypes.h)
@@ -193,6 +205,7 @@ void resetPlayers() {
   reactionInstructPlayed = false;  // reset instruction flag for new game
   shakeInstructPlayed = false;
   for (int i = 0; i < 5; i++) { ringOverride[i] = RGB_OFF; ringBlink[i] = false; }
+  for (int i = 0; i < ACK_SLOT_COUNT; i++) pendingAcks[i].waiting = false;
 }
 
 void resetRound() {
@@ -612,12 +625,121 @@ void espnowBroadcast(uint8_t cmd, uint16_t data) {
 }
 
 // =============================================================================
+// ACK + RETRY (non-blocking)
+// =============================================================================
+#define ACK_MAX_RETRIES    3
+#define ACK_RETRY_INTERVAL 50   // ms
+#define ACK_SLOT_COUNT     5    // 4 joysticks + 1 display
+
+struct PendingAck {
+  bool waiting;
+  uint8_t dest;           // target device ID
+  uint8_t cmd;            // command sent
+  uint16_t data;          // command data
+  uint8_t mac[6];         // target MAC
+  uint8_t retries;        // attempts remaining
+  unsigned long lastSend; // millis of last send
+};
+
+PendingAck pendingAcks[ACK_SLOT_COUNT];
+
+// Map stick/display ID to pending ACK slot index (0-3 = sticks, 4 = display)
+int8_t ackSlotFor(uint8_t destId) {
+  if (destId >= ID_STICK1 && destId <= ID_STICK4) return destId - ID_STICK1;
+  if (destId == ID_DISPLAY) return 4;
+  return -1;
+}
+
+// MAC lookup by device ID
+uint8_t* macForDest(uint8_t destId) {
+  switch (destId) {
+    case ID_STICK1: return stick1Mac;
+    case ID_STICK2: return stick2Mac;
+    case ID_STICK3: return stick3Mac;
+    case ID_STICK4: return stick4Mac;
+    case ID_DISPLAY: return displayMac;
+    default: return nullptr;
+  }
+}
+
+// Send a critical command with ACK tracking (replaces espnowSend for critical cmds)
+void sendWithRetry(uint8_t destId, uint8_t cmd, uint16_t data) {
+  int8_t slot = ackSlotFor(destId);
+  if (slot < 0) return;
+
+  uint8_t* mac = macForDest(destId);
+  if (!mac) return;
+
+  // Store pending ACK
+  PendingAck &pa = pendingAcks[slot];
+  pa.waiting = true;
+  pa.dest = destId;
+  pa.cmd = cmd;
+  pa.data = data;
+  memcpy(pa.mac, mac, 6);
+  pa.retries = ACK_MAX_RETRIES;
+  pa.lastSend = millis();
+
+  // Send first attempt
+  espnowSend(mac, destId, cmd, data);
+  Serial.printf("[ACK] Sent cmd=0x%02X to 0x%02X (retries=%d)\n", cmd, destId, pa.retries);
+}
+
+// Send a critical command to all joined joysticks (unicast each for ACK tracking)
+void sendToJoysticksWithRetry(uint8_t cmd, uint16_t data) {
+  for (int i = 0; i < MAX_PLAYERS; i++) {
+    if (slotToStick[i] != 0xFF) {
+      sendWithRetry(slotToStick[i], cmd, data);
+    }
+  }
+}
+
+// Send a critical command to display with ACK tracking
+void sendToDisplayWithRetry(uint8_t cmd, uint8_t dataHigh, uint8_t dataLow) {
+  uint16_t data = ((uint16_t)dataHigh << 8) | dataLow;
+  sendWithRetry(ID_DISPLAY, cmd, data);
+  Serial.printf("[DISP] cmd=0x%02X data=%d,%d\n", cmd, dataHigh, dataLow);
+}
+
+// Called in loop() — retransmits pending commands that haven't been ACK'd
+void updateRetries() {
+  unsigned long now = millis();
+  for (int i = 0; i < ACK_SLOT_COUNT; i++) {
+    PendingAck &pa = pendingAcks[i];
+    if (!pa.waiting) continue;
+    if (now - pa.lastSend < ACK_RETRY_INTERVAL) continue;
+
+    if (pa.retries > 0) {
+      pa.retries--;
+      pa.lastSend = now;
+      espnowSend(pa.mac, pa.dest, pa.cmd, pa.data);
+      Serial.printf("[ACK] Retry cmd=0x%02X to 0x%02X (retries=%d)\n", pa.cmd, pa.dest, pa.retries);
+    } else {
+      pa.waiting = false;
+      Serial.printf("[ACK] GAVE UP cmd=0x%02X to 0x%02X\n", pa.cmd, pa.dest);
+    }
+  }
+}
+
+// Handle incoming ACK — clear matching pending slot
+void handleAck(uint8_t srcId, uint8_t ackedCmd) {
+  int8_t slot = ackSlotFor(srcId);
+  if (slot < 0) return;
+
+  PendingAck &pa = pendingAcks[slot];
+  if (pa.waiting && pa.cmd == ackedCmd) {
+    pa.waiting = false;
+    Serial.printf("[ACK] Received ACK for cmd=0x%02X from 0x%02X\n", ackedCmd, srcId);
+  }
+}
+
+// =============================================================================
 // HARDWARE SIGNALS
 // =============================================================================
 void sendGO() {
-  // Send GO signal via ESP-NOW broadcast to all joysticks
-  espnowBroadcast(CMD_GO, 0);
-  Serial.println("[GO] Sent CMD_GO via ESP-NOW");
+  // Send GO individually to each joined joystick (with ACK tracking)
+  sendToJoysticksWithRetry(CMD_GO, 0);
+  Serial.println("[GO] Sent CMD_GO to all joined joysticks");
 }
 
 // void pulseRST() {
@@ -637,10 +759,17 @@ void OnDataRecv(const uint8_t *mac, const uint8_t *data, int len) {
   if (!validatePacket(&pkt)) return;
 
   uint8_t src = pkt.src_id;
+  uint16_t val = packetData(&pkt);
+
+  // Handle CMD_ACK from any source (joysticks or display)
+  if (pkt.cmd == CMD_ACK) {
+    handleAck(src, pkt.data_low);
+    return;
+  }
+
+  // All other commands must come from joysticks
   if (src < ID_STICK1 || src > ID_STICK4) return;
   uint8_t stickIdx = src - ID_STICK1;  // which physical joystick (0-3)
-
-  uint16_t val = packetData(&pkt);
 
   // Debug: log all incoming packets
   Serial.printf("[ESP-NOW] Recv cmd=0x%02X from stick %d (0x%02X), data=%d, state=%d\n",
@@ -668,12 +797,12 @@ void OnDataRecv(const uint8_t *mac, const uint8_t *data, int len) {
       players[slot].joined = true;
       joinedCount++;
 
-      // Turn this slot's ring GREEN
+      // Turn this slot's ring to the joystick's identity color
       uint8_t ring = playerToRing(slot);
-      ringOverride[ring] = RGB_GREEN;
+      ringOverride[ring] = stickColor(src);
 
-      // Notify display that player is ready
-      sendToDisplay(DISP_PLAYER_READY, 1, slot + 1);
+      // Notify display that player is ready (data_high = player slot 1-4, data_low = joystick ID)
+      sendToDisplayWithRetry(DISP_PLAYER_READY, slot + 1, src);
 
       // Send ACK to joystick (with slot number in data)
       espnowSend((uint8_t*)mac, src, CMD_OK, slot + 1);
@@ -769,8 +898,8 @@ void handleIdle() {
     neoOffset = 0;
     for (int i = 0; i < 5; i++) ringOverride[i] = RGB_OFF;
 
-    espnowBroadcast(CMD_IDLE, 0);
-    sendToDisplay(DISP_IDLE, 0, 0);
+    sendToJoysticksWithRetry(CMD_IDLE, 0);
+    sendToDisplayWithRetry(DISP_IDLE, 0, 0);
     audio.queueSound(SND_PRESS_TO_JOIN);
     Serial.println("[STATE] IDLE");
   }
@@ -797,7 +926,7 @@ void startPromptSlot(uint8_t slot) {
   neoLastUpdate = 0;
 
   // Send prompt to display (player number 1-4)
-  sendToDisplay(DISP_PLAYER_PROMPT, 0, slot + 1);
+  sendToDisplayWithRetry(DISP_PLAYER_PROMPT, 0, slot + 1);
 
   // Interrupt any currently playing audio, then play new player number
   audio.stop();
@@ -874,7 +1003,7 @@ void handleCountdown() {
       delayIdx = getRandomIndex(&lastDelayIdx, NUM_REACT_DELAYS);
       Serial.printf("[COUNTDOWN] Round %d: REACTION, delay=%dms\n",
                     currentRound, REACT_DELAYS[delayIdx]);
-      sendToDisplay(DISP_REACTION_MODE, 0, 0);
+      sendToDisplayWithRetry(DISP_REACTION_MODE, 0, 0);
       audio.queueSound(SND_REACTION_MODE);
       // Only play instruction the first time reaction mode is played this game
       if (!reactionInstructPlayed) {
@@ -889,7 +1018,7 @@ void handleCountdown() {
       neoState = NEO_RANDOM_FAST;
 
       // Send mode to joysticks
-      espnowBroadcast(CMD_GAME_START, ((uint16_t)gameMode << 8) | 0);
+      sendToJoysticksWithRetry(CMD_GAME_START, ((uint16_t)gameMode << 8) | 0);
 
       // Reaction mode: NO countdown - wait for announcements then random delay
       Serial.println("[REACTION] Waiting for announcements before random delay");
@@ -902,7 +1031,7 @@ void handleCountdown() {
       targetIdx = getRandomIndex(&lastTargetIdx, NUM_SHAKE_TARGETS);
       Serial.printf("[COUNTDOWN] Round %d: SHAKE, target=%d\n",
                     currentRound, SHAKE_TARGETS[targetIdx]);
-      sendToDisplay(DISP_SHAKE_MODE, 0, SHAKE_TARGETS[targetIdx]);
+      sendToDisplayWithRetry(DISP_SHAKE_MODE, 0, SHAKE_TARGETS[targetIdx]);
       audio.queueSound(SND_SHAKE_IT);
       // Only play instruction the first time shake mode is played this game
       if (!shakeInstructPlayed) {
@@ -920,7 +1049,7 @@ void handleCountdown() {
 
       // Send mode+param to all joysticks so they know what to do after GO
       uint16_t param = SHAKE_TARGETS[targetIdx];
-      espnowBroadcast(CMD_GAME_START, ((uint16_t)gameMode << 8) | param);
+      sendToJoysticksWithRetry(CMD_GAME_START, ((uint16_t)gameMode << 8) | param);
 
       // Wait for announcements to finish before starting countdown
       shakeAnnouncementDone = false;
@@ -937,8 +1066,8 @@ void handleCountdown() {
       shakeAnnouncementDone = true;
       stateStartTime = millis();  // reset for countdown timing
       // Start countdown 3
-      sendToDisplay(DISP_COUNTDOWN, 0, countdownNum);
-      espnowBroadcast(CMD_COUNTDOWN, countdownNum);
+      sendToDisplayWithRetry(DISP_COUNTDOWN, 0, countdownNum);
+      sendToJoysticksWithRetry(CMD_COUNTDOWN, countdownNum);
       countdownFlashStart = millis();
       audio.playCountdown(countdownNum);
       Serial.printf("[COUNTDOWN] %d\n", countdownNum);
@@ -953,15 +1082,15 @@ void handleCountdown() {
 
     // Countdown only runs for shake mode (reaction mode skips directly to STATE_REACTION)
     if (countdownNum > 0) {
-      sendToDisplay(DISP_COUNTDOWN, 0, countdownNum);
-      espnowBroadcast(CMD_COUNTDOWN, countdownNum);
+      sendToDisplayWithRetry(DISP_COUNTDOWN, 0, countdownNum);
+      sendToJoysticksWithRetry(CMD_COUNTDOWN, countdownNum);
       countdownFlashStart = millis();  // trigger NeoPixel flash sync with audio/vibe
       audio.playCountdown(countdownNum);
       Serial.printf("[COUNTDOWN] %d\n", countdownNum);
       countdownNum--;
     } else {
       // Countdown done -> fire GO for shake mode
-      sendToDisplay(DISP_GO, 0, 0);
+      sendToDisplayWithRetry(DISP_GO, 0, 0);
       sendGO(); // hardware sync - joysticks vibrate on hardware GO
       audio.queueSound(SND_BEEP);
       Serial.println("[GO] Shake mode started!");
@@ -990,7 +1119,7 @@ void handleReaction() {
     if (millis() - stateStartTime > announceDelay) {
       reactionAnnouncementDone = true;
       stateStartTime = millis();  // reset for random delay timing
-      sendToDisplay(DISP_GO, 0, 0); // display shows "GO" meaning "get ready, watch LEDs"
+      sendToDisplayWithRetry(DISP_GO, 0, 0); // display shows "GO" meaning "get ready, watch LEDs"
       Serial.printf("[REACTION] Announcements done, random delay=%dms\n", REACT_DELAYS[delayIdx]);
     }
     return;
@@ -1153,12 +1282,12 @@ void handleShowResults() {
     uint8_t winner = findRoundWinner();
     if (winner != 0xFF) {
       players[winner].score++;
-      sendToDisplay(DISP_ROUND_WINNER, 0, winner + 1);
+      sendToDisplayWithRetry(DISP_ROUND_WINNER, 0, winner + 1);
       audio.playPlayerNumber(winner + 1);
       audio.queueSound(SND_FASTEST);
       Serial.printf("[RESULTS] Round %d winner: Player %d\n", currentRound, winner+1);
     } else {
-      sendToDisplay(DISP_ROUND_WINNER, 0, 0); // no winner
+      sendToDisplayWithRetry(DISP_ROUND_WINNER, 0, 0); // no winner
       Serial.println("[RESULTS] No winner this round");
     }
 
@@ -1198,13 +1327,13 @@ void handleFinalWinner() {
 
     if (winner != 0xFF) {
       Serial.printf("[FINAL] Winner: Player %d\n", winner + 1);
-      sendToDisplay(DISP_FINAL_WINNER, 0, winner + 1);
+      sendToDisplayWithRetry(DISP_FINAL_WINNER, 0, winner + 1);
       // Play winner announcement first, then victory music, then game over
       audio.playPlayerWins(winner + 1);
       audio.queueSound(SND_VICTORY_FANFARE);
     } else {
       Serial.println("[FINAL] No winner (all scores 0)");
-      sendToDisplay(DISP_FINAL_WINNER, 0, 0);
+      sendToDisplayWithRetry(DISP_FINAL_WINNER, 0, 0);
     }
     audio.queueSound(SND_GAME_OVER);
   }
@@ -1298,6 +1427,7 @@ void loop() {
   audio.update();
   updateNeoPixels();
   updateStrip();
+  updateRetries();
 
   switch (gameState) {
     case STATE_IDLE:            handleIdle();           break;
