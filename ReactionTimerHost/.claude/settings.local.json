@@ -7,7 +7,8 @@
       "Bash(powershell -Command:*)",
       "Bash(where:*)",
       "Bash(python:*)",
-      "Read(//c/Users/Ruanyouyi/Documents/GitHub/ReactionTimeDual/**)"
+      "Read(//c/Users/Ruanyouyi/Documents/GitHub/ReactionTimeDual/**)",
+      "Bash(findstr:*)"
     ]
   }
 }
