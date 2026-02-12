@@ -285,6 +285,18 @@ void updateNeoPixels() {
       break;
 
     case NEO_FIXED_COLOR:
+      // Re-render frozen yellow until pixels actually update on screen
+      // (handles case where initial Show() was skipped due to RMT DMA busy)
+      if (now - neoLastUpdate > 50) {
+        neoLastUpdate = now;
+        pixels.ClearTo(RGB_OFF);
+        for (int i = 0; i < MAX_PLAYERS; i++) {
+          if (players[i].joined) {
+            setRingColor(playerToRing(i), RGB_YELLOW);
+          }
+        }
+        pixelsShow();
+      }
       break;
 
     case NEO_COUNTDOWN:
