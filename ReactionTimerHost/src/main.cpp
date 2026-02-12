@@ -190,6 +190,23 @@ uint8_t getNextGameMode() {
   return modeBag[modeBagIdx++];
 }
 
+// Forward declaration for ACK tracking (full implementation below ESP-NOW send section)
+#define ACK_MAX_RETRIES    3
+#define ACK_RETRY_INTERVAL 50   // ms
+#define ACK_SLOT_COUNT     5    // 4 joysticks + 1 display
+
+struct PendingAck {
+  bool waiting;
+  uint8_t dest;
+  uint8_t cmd;
+  uint16_t data;
+  uint8_t mac[6];
+  uint8_t retries;
+  unsigned long lastSend;
+};
+
+PendingAck pendingAcks[ACK_SLOT_COUNT];
+
 void resetPlayers() {
   for (int i = 0; i < MAX_PLAYERS; i++) {
     players[i].joined = false;
@@ -626,22 +643,8 @@ void espnowBroadcast(uint8_t cmd, uint16_t data) {
 
 // =============================================================================
 // ACK + RETRY (non-blocking)
+// PendingAck struct, pendingAcks[], and defines declared above resetPlayers()
 // =============================================================================
-#define ACK_MAX_RETRIES    3
-#define ACK_RETRY_INTERVAL 50   // ms
-#define ACK_SLOT_COUNT     5    // 4 joysticks + 1 display
-
-struct PendingAck {
-  bool waiting;
-  uint8_t dest;           // target device ID
-  uint8_t cmd;            // command sent
-  uint16_t data;          // command data
-  uint8_t mac[6];         // target MAC
-  uint8_t retries;        // attempts remaining
-  unsigned long lastSend; // millis of last send
-};
-
-PendingAck pendingAcks[ACK_SLOT_COUNT];
 
 // Map stick/display ID to pending ACK slot index (0-3 = sticks, 4 = display)
 int8_t ackSlotFor(uint8_t destId) {
