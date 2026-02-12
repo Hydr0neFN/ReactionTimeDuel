@@ -6,6 +6,7 @@
  *
  * Pins:
  *   GPIO4:  NeoPixel DIN (5 rings x 12 LEDs = 60)
+ *   GPIO16: WS2812B Strip DIN (89 LEDs, ambient animations)
  *   GPIO18: CC1 / RST - reset all joysticks
  *   GPIO25: I2S DOUT
  *   GPIO26: I2S BCLK
@@ -31,7 +32,7 @@
 #include <esp_now.h>
 #include <WiFi.h>
 #include <esp_wifi.h>
-#include <Adafruit_NeoPixel.h>
+#include <NeoPixelBrightnessBus.h>
 #include "Protocol.h"
 #include "GameTypes.h"
 #include "AudioManager.h"
@@ -40,6 +41,9 @@
 // PIN DEFINITIONS
 // =============================================================================
 #define PIN_NEOPIXEL      4
+#define PIN_STRIP         16    // WS2812B ambient light strip
+#define STRIP_LED_COUNT   89
+#define STRIP_BRIGHTNESS  80
 // #define PIN_RST           18    // CC1 -> reset joysticks
 
 // =============================================================================
@@ -55,7 +59,9 @@ uint8_t broadcastMac[6]= {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 // =============================================================================
 // HARDWARE
 // =============================================================================
-Adafruit_NeoPixel pixels(NEOPIXEL_COUNT, PIN_NEOPIXEL, NEO_GRB + NEO_KHZ800);
+// Both use ESP32 RMT with DMA — Show() is non-blocking (no interrupt disable)
+NeoPixelBrightnessBus<NeoGrbFeature, NeoEsp32Rmt0800KbpsMethod> pixels(NEOPIXEL_COUNT, PIN_NEOPIXEL);
+NeoPixelBrightnessBus<NeoGrbFeature, NeoEsp32Rmt1800KbpsMethod> strip(STRIP_LED_COUNT, PIN_STRIP);
 AudioManager audio;
 
 // =============================================================================
@@ -136,9 +142,14 @@ uint32_t neoOffset = 0;
 unsigned long neoLastUpdate = 0;
 bool neoBlink = false;
 uint8_t blinkSlot = 0;  // which player slot to blink (0-3) for NEO_BLINK_SLOT mode
-// Per-ring color overrides (0 = use default animation). Set during COLLECT/RESULTS.
-uint32_t ringOverride[5] = {0,0,0,0,0};
+// Per-ring color overrides (black = use default animation). Set during COLLECT/RESULTS.
+RgbColor ringOverride[5];  // default-constructs to black (0,0,0)
 bool ringBlink[5] = {false,false,false,false,false};  // true = blink this ring on/off
+static const RgbColor RGB_OFF(0);
+static const RgbColor RGB_RED(255, 0, 0);
+static const RgbColor RGB_GREEN(0, 255, 0);
+static const RgbColor RGB_YELLOW(255, 255, 0);
+static const RgbColor RGB_WHITE(255, 255, 255);
 
 // =============================================================================
 // HELPERS (playerToRing is in GameTypes.h)
@@ -181,7 +192,7 @@ void resetPlayers() {
   modeBagIdx = 2;  // reset shuffle bag for new game
   reactionInstructPlayed = false;  // reset instruction flag for new game
   shakeInstructPlayed = false;
-  for (int i = 0; i < 5; i++) { ringOverride[i] = 0; ringBlink[i] = false; }
+  for (int i = 0; i < 5; i++) { ringOverride[i] = RGB_OFF; ringBlink[i] = false; }
 }
 
 void resetRound() {
@@ -189,7 +200,7 @@ void resetRound() {
     players[i].finished = false;
     players[i].reactionTime = 0xFFFF;
   }
-  for (int i = 0; i < 5; i++) { ringOverride[i] = 0; ringBlink[i] = false; }
+  for (int i = 0; i < 5; i++) { ringOverride[i] = RGB_OFF; ringBlink[i] = false; }
 }
 
 uint8_t findRoundWinner() {
@@ -217,20 +228,25 @@ uint8_t findFinalWinner() {
 }
 
 // =============================================================================
-// NEOPIXEL FUNCTIONS
+// NEOPIXEL FUNCTIONS (NeoPixelBus — non-blocking RMT DMA)
 // =============================================================================
-void setRingColor(uint8_t ring, uint32_t color) {
+void setRingColor(uint8_t ring, RgbColor color) {
   uint8_t start = ring * LEDS_PER_RING;
   for (uint8_t i = 0; i < LEDS_PER_RING; i++)
-    pixels.setPixelColor(start + i, color);
+    pixels.SetPixelColor(start + i, color);
 }
 
-uint32_t wheel(uint8_t pos) {
+RgbColor wheel(uint8_t pos) {
   pos = 255 - pos;
-  if (pos < 85)  return pixels.Color(255 - pos*3, 0, pos*3);
-  if (pos < 170) { pos -= 85; return pixels.Color(0, pos*3, 255 - pos*3); }
+  if (pos < 85)  return RgbColor(255 - pos*3, 0, pos*3);
+  if (pos < 170) { pos -= 85; return RgbColor(0, pos*3, 255 - pos*3); }
   pos -= 170;
-  return pixels.Color(pos*3, 255 - pos*3, 0);
+  return RgbColor(pos*3, 255 - pos*3, 0);
+}
+
+// Non-blocking show for game rings
+void pixelsShow() {
+  if (pixels.CanShow()) pixels.Show();
 }
 
 void updateNeoPixels() {
@@ -238,14 +254,10 @@ void updateNeoPixels() {
 
   // Countdown flash overlay: shows bright white on all rings, synced with audio/vibration
   if (countdownFlashStart > 0 && (now - countdownFlashStart) < COUNTDOWN_FLASH_DURATION) {
-    // Flash active - set all rings to bright white
-    for (int i = 0; i < NEOPIXEL_COUNT; i++) {
-      pixels.setPixelColor(i, pixels.Color(255, 255, 255));  // bright white
-    }
-    pixels.show();
-    return;  // skip normal animation during flash
+    pixels.ClearTo(RGB_WHITE);
+    pixelsShow();
+    return;
   } else if (countdownFlashStart > 0 && (now - countdownFlashStart) >= COUNTDOWN_FLASH_DURATION) {
-    // Flash ended - reset flag and let normal animation take over
     countdownFlashStart = 0;
   }
 
@@ -254,135 +266,104 @@ void updateNeoPixels() {
       if (now - neoLastUpdate > 50) {
         neoLastUpdate = now;
         for (int i = 0; i < NEOPIXEL_COUNT; i++)
-          pixels.setPixelColor(i, wheel((i * 256 / NEOPIXEL_COUNT + neoOffset) & 255));
+          pixels.SetPixelColor(i, wheel((i * 256 / NEOPIXEL_COUNT + neoOffset) & 255));
         neoOffset++;
-        pixels.show();
+        pixelsShow();
       }
       break;
 
     case NEO_RANDOM_FAST:
-      // Rainbow cycling effect during reaction timer wait
-      // Each ring gets a different hue offset, cycling smoothly
-      if (now - neoLastUpdate > 30) {  // ~33 FPS for smooth animation
+      if (now - neoLastUpdate > 30) {
         neoLastUpdate = now;
         for (int r = 0; r < NUM_RINGS; r++) {
-          // Each ring has a different base hue, offset by ring position
-          uint8_t ringHue = (neoOffset + r * 51) & 255;  // 51 = 255/5, spread evenly
-          uint32_t ringColor = wheel(ringHue);
-          setRingColor(r, ringColor);
+          uint8_t ringHue = (neoOffset + r * 51) & 255;
+          setRingColor(r, wheel(ringHue));
         }
-        neoOffset += 3;  // Speed of rainbow cycling
-        pixels.show();
+        neoOffset += 3;
+        pixelsShow();
       }
       break;
 
     case NEO_FIXED_COLOR:
-      // Do nothing - last frame stays. Show is already done when we froze.
       break;
 
     case NEO_COUNTDOWN:
       if (now - neoLastUpdate > 250) {
         neoLastUpdate = now;
         neoBlink = !neoBlink;
-        uint32_t c = neoBlink ? pixels.Color(255, 0, 0) : 0;
-        for (int i = 0; i < NEOPIXEL_COUNT; i++)
-          pixels.setPixelColor(i, c);
-        pixels.show();
+        RgbColor c = neoBlink ? RGB_RED : RGB_OFF;
+        pixels.ClearTo(c);
+        pixelsShow();
       }
       break;
 
     case NEO_STATUS: {
-      // Show ring overrides where set, blink rings with ringBlink flag
-      if (now - neoLastUpdate > 50) {  // 20 FPS max
+      if (now - neoLastUpdate > 50) {
         neoLastUpdate = now;
-        // Toggle blink state every ~300ms
         bool blinkOn = ((now / 300) % 2) == 0;
         for (int r = 0; r < 5; r++) {
-          if (ringOverride[r]) {
+          if (ringOverride[r] != RGB_OFF) {
             if (ringBlink[r] && !blinkOn)
-              setRingColor(r, 0);  // blink off phase
+              setRingColor(r, RGB_OFF);
             else
               setRingColor(r, ringOverride[r]);
           } else {
-            setRingColor(r, 0);
+            setRingColor(r, RGB_OFF);
           }
         }
-        pixels.show();
+        pixelsShow();
       }
       break;
     }
 
     case NEO_BLINK_SLOT:
-      // Blink the prompted player's ring, show green for already-joined players
       if (now - neoLastUpdate > 300) {
         neoLastUpdate = now;
         neoBlink = !neoBlink;
 
-        // First show all ring overrides (green for joined players)
         for (int r = 0; r < 5; r++) {
-          if (ringOverride[r])
+          if (ringOverride[r] != RGB_OFF)
             setRingColor(r, ringOverride[r]);
           else
-            setRingColor(r, 0);
+            setRingColor(r, RGB_OFF);
         }
 
-        // Then blink the current prompt slot's ring (yellow when on)
         uint8_t blinkRing = playerToRing(blinkSlot);
-        if (neoBlink) {
-          setRingColor(blinkRing, pixels.Color(255, 255, 0));  // yellow blink
-        } else {
-          setRingColor(blinkRing, 0);  // off
-        }
-        pixels.show();
+        setRingColor(blinkRing, neoBlink ? RGB_YELLOW : RGB_OFF);
+        pixelsShow();
       }
       break;
 
     case NEO_SHAKE_COUNTDOWN:
-      // Shake mode: rainbow colors on player rings, center ring countdown
-      if (now - neoLastUpdate > 30) {  // ~33 FPS for smooth animation
+      if (now - neoLastUpdate > 30) {
         neoLastUpdate = now;
 
-        // Player rings: rainbow cycling (or green/red if finished)
         for (int r = 0; r < NUM_RINGS; r++) {
-          if (r == CENTER_RING) continue;  // skip center ring
-          if (ringOverride[r]) {
-            setRingColor(r, ringOverride[r]);  // green/red if finished
+          if (r == CENTER_RING) continue;
+          if (ringOverride[r] != RGB_OFF) {
+            setRingColor(r, ringOverride[r]);
           } else {
-            // Rainbow color for active players, each ring offset by hue
-            uint8_t ringHue = (neoOffset + r * 51) & 255;  // 51 = 255/5, spread evenly
-            uint32_t ringColor = wheel(ringHue);
-            setRingColor(r, ringColor);
+            uint8_t ringHue = (neoOffset + r * 51) & 255;
+            setRingColor(r, wheel(ringHue));
           }
         }
-        neoOffset += 3;  // Speed of rainbow cycling
+        neoOffset += 3;
 
-        // Center ring: countdown based on elapsed time
         unsigned long elapsed = now - shakeStartTime;
         uint8_t ledsRemaining = LEDS_PER_RING - (elapsed / SHAKE_LED_INTERVAL);
-        if (ledsRemaining > LEDS_PER_RING) ledsRemaining = 0;  // overflow protection
+        if (ledsRemaining > LEDS_PER_RING) ledsRemaining = 0;
 
-        // Calculate color: green -> yellow -> red as time runs out
-        uint8_t r_val, g_val;
-        if (ledsRemaining > 8) {
-          r_val = 0; g_val = 255;  // green (>66%)
-        } else if (ledsRemaining > 4) {
-          r_val = 255; g_val = 255;  // yellow (33-66%)
-        } else {
-          r_val = 255; g_val = 0;  // red (<33%)
-        }
-        uint32_t countdownColor = pixels.Color(r_val, g_val, 0);
+        RgbColor countdownColor;
+        if (ledsRemaining > 8)       countdownColor = RGB_GREEN;
+        else if (ledsRemaining > 4)  countdownColor = RGB_YELLOW;
+        else                          countdownColor = RGB_RED;
 
-        // Light up remaining LEDs on center ring
         int startIdx = CENTER_RING * LEDS_PER_RING;
         for (int i = 0; i < LEDS_PER_RING; i++) {
-          if (i < ledsRemaining) {
-            pixels.setPixelColor(startIdx + i, countdownColor);
-          } else {
-            pixels.setPixelColor(startIdx + i, 0);  // off
-          }
+          pixels.SetPixelColor(startIdx + i, (i < ledsRemaining) ? countdownColor : RGB_OFF);
         }
 
-        pixels.show();
+        pixelsShow();
       }
       break;
 
@@ -391,14 +372,207 @@ void updateNeoPixels() {
   }
 }
 
-// Set all NeoPixels to yellow when GO fires in reaction mode (visual "press now" cue)
+// Set NeoPixels to yellow for joined players when GO fires (visual "press now" cue)
 void freezeNeoPixels() {
-  // Set all rings to yellow
-  for (int r = 0; r < NUM_RINGS; r++) {
-    setRingColor(r, pixels.Color(255, 255, 0));  // yellow
+  pixels.ClearTo(RGB_OFF);
+  for (int i = 0; i < MAX_PLAYERS; i++) {
+    if (players[i].joined) {
+      setRingColor(playerToRing(i), RGB_YELLOW);
+    }
   }
-  pixels.show();
+  pixelsShow();
   neoState = NEO_FIXED_COLOR;
+}
+
+// =============================================================================
+// WS2812B STRIP - NON-BLOCKING RANDOM ANIMATIONS (89 LEDs on GPIO16)
+// Uses NeoPixelBus with ESP32 RMT DMA — Show() returns immediately.
+// =============================================================================
+enum StripAnim : uint8_t {
+  ANIM_RAINBOW_CYCLE,
+  ANIM_SPARKLE,
+  ANIM_METEOR,
+  ANIM_COLOR_CHASE,
+  ANIM_BREATHING,
+  ANIM_FIRE,
+  ANIM_COUNT  // total number of animations
+};
+
+StripAnim stripAnim = ANIM_RAINBOW_CYCLE;
+unsigned long stripLastUpdate = 0;
+unsigned long stripAnimStart = 0;       // when current animation started
+uint32_t stripStep = 0;                 // animation step counter
+#define STRIP_ANIM_DURATION  15000      // switch animation every 15 seconds
+
+// Per-LED heat buffer for fire effect
+uint8_t stripHeat[STRIP_LED_COUNT];
+
+// Helper: color wheel for the strip (returns RgbColor)
+RgbColor stripWheel(uint8_t pos) {
+  pos = 255 - pos;
+  if (pos < 85)  return RgbColor(255 - pos * 3, 0, pos * 3);
+  if (pos < 170) { pos -= 85; return RgbColor(0, pos * 3, 255 - pos * 3); }
+  pos -= 170;
+  return RgbColor(pos * 3, 255 - pos * 3, 0);
+}
+
+// Helper: dim an RgbColor by a factor (0-255)
+RgbColor dimColor(RgbColor color, uint8_t bright) {
+  return RgbColor(
+    (uint16_t)color.R * bright / 255,
+    (uint16_t)color.G * bright / 255,
+    (uint16_t)color.B * bright / 255
+  );
+}
+
+// Helper: non-blocking show — only pushes data if RMT DMA is idle
+void stripShow() {
+  if (strip.CanShow()) strip.Show();
+}
+
+// --- Animation: Rainbow Cycle ---
+void stripRainbowCycle() {
+  if (millis() - stripLastUpdate < 30) return;
+  stripLastUpdate = millis();
+  for (int i = 0; i < STRIP_LED_COUNT; i++) {
+    strip.SetPixelColor(i, stripWheel((i * 256 / STRIP_LED_COUNT + stripStep) & 255));
+  }
+  stripShow();
+  stripStep++;
+}
+
+// --- Animation: Sparkle / Twinkle ---
+void stripSparkle() {
+  if (millis() - stripLastUpdate < 50) return;
+  stripLastUpdate = millis();
+  // Fade all LEDs slightly
+  for (int i = 0; i < STRIP_LED_COUNT; i++) {
+    RgbColor c = strip.GetPixelColor(i);
+    strip.SetPixelColor(i, dimColor(c, 200));
+  }
+  // Light up 2-3 random LEDs with random bright colors
+  for (int s = 0; s < 3; s++) {
+    int pos = random(STRIP_LED_COUNT);
+    strip.SetPixelColor(pos, stripWheel(random(256)));
+  }
+  stripShow();
+}
+
+// --- Animation: Meteor Rain ---
+void stripMeteor() {
+  if (millis() - stripLastUpdate < 25) return;
+  stripLastUpdate = millis();
+  // Randomly fade each LED (creates trail)
+  for (int i = 0; i < STRIP_LED_COUNT; i++) {
+    if (random(10) > 4) {
+      RgbColor c = strip.GetPixelColor(i);
+      strip.SetPixelColor(i, dimColor(c, 160));
+    }
+  }
+  // Draw meteor head (6 LEDs)
+  uint16_t head = stripStep % (STRIP_LED_COUNT + 20);
+  for (int j = 0; j < 6; j++) {
+    int pos = head - j;
+    if (pos >= 0 && pos < STRIP_LED_COUNT) {
+      uint8_t bright = 255 - j * 40;
+      strip.SetPixelColor(pos, dimColor(RgbColor(200, 80, 255), bright));
+    }
+  }
+  stripShow();
+  stripStep++;
+}
+
+// --- Animation: Color Chase ---
+void stripColorChase() {
+  if (millis() - stripLastUpdate < 60) return;
+  stripLastUpdate = millis();
+  // 3 colored segments chasing around the strip
+  for (int i = 0; i < STRIP_LED_COUNT; i++) {
+    uint8_t seg = (i + stripStep) % 18;
+    if (seg < 6)       strip.SetPixelColor(i, RgbColor(255, 0, 0));
+    else if (seg < 12) strip.SetPixelColor(i, RgbColor(0, 255, 0));
+    else               strip.SetPixelColor(i, RgbColor(0, 0, 255));
+  }
+  stripShow();
+  stripStep++;
+}
+
+// --- Animation: Breathing (single color pulsing) ---
+void stripBreathing() {
+  if (millis() - stripLastUpdate < 20) return;
+  stripLastUpdate = millis();
+  uint8_t phase = stripStep & 0xFF;
+  // Triangle wave: 0->255->0
+  uint8_t level = (phase < 128) ? phase * 2 : (255 - phase) * 2;
+  // Gamma-correct for smoother visual
+  uint8_t bright = (uint16_t)level * level / 255;
+  // Cycle hue slowly over time
+  uint8_t hue = (stripStep / 4) & 0xFF;
+  RgbColor color = dimColor(stripWheel(hue), bright);
+  strip.ClearTo(color);
+  stripShow();
+  stripStep++;
+}
+
+// --- Animation: Fire Effect ---
+void stripFire() {
+  if (millis() - stripLastUpdate < 30) return;
+  stripLastUpdate = millis();
+  // Cool down every cell a little
+  for (int i = 0; i < STRIP_LED_COUNT; i++) {
+    uint8_t cooldown = random(0, 20);
+    stripHeat[i] = (stripHeat[i] > cooldown) ? stripHeat[i] - cooldown : 0;
+  }
+  // Heat drifts up and diffuses
+  for (int i = STRIP_LED_COUNT - 1; i >= 2; i--) {
+    stripHeat[i] = (stripHeat[i - 1] + stripHeat[i - 2] + stripHeat[i - 2]) / 3;
+  }
+  // Randomly ignite new sparks near the bottom
+  if (random(255) < 160) {
+    int pos = random(7);
+    stripHeat[pos] = min(255L, (long)stripHeat[pos] + random(160, 255));
+  }
+  // Map heat to color (black -> red -> yellow -> white)
+  for (int i = 0; i < STRIP_LED_COUNT; i++) {
+    uint8_t t = stripHeat[i];
+    uint8_t r, g, b;
+    if (t < 85) {
+      r = t * 3; g = 0; b = 0;
+    } else if (t < 170) {
+      r = 255; g = (t - 85) * 3; b = 0;
+    } else {
+      r = 255; g = 255; b = (t - 170) * 3;
+    }
+    strip.SetPixelColor(i, RgbColor(r, g, b));
+  }
+  stripShow();
+}
+
+// --- Strip Update: picks and runs current animation, switches randomly ---
+void updateStrip() {
+  unsigned long now = millis();
+  // Switch to a random animation periodically
+  if (now - stripAnimStart > STRIP_ANIM_DURATION) {
+    StripAnim newAnim;
+    do { newAnim = (StripAnim)random(ANIM_COUNT); } while (newAnim == stripAnim && ANIM_COUNT > 1);
+    stripAnim = newAnim;
+    stripStep = 0;
+    stripAnimStart = now;
+    memset(stripHeat, 0, sizeof(stripHeat));
+    // Clear strip on transition for clean start
+    strip.ClearTo(RgbColor(0));
+    stripShow();
+    Serial.printf("[STRIP] Switched to animation %d\n", stripAnim);
+  }
+  switch (stripAnim) {
+    case ANIM_RAINBOW_CYCLE: stripRainbowCycle(); break;
+    case ANIM_SPARKLE:       stripSparkle();      break;
+    case ANIM_METEOR:        stripMeteor();       break;
+    case ANIM_COLOR_CHASE:   stripColorChase();   break;
+    case ANIM_BREATHING:     stripBreathing();    break;
+    case ANIM_FIRE:          stripFire();         break;
+    default:                 stripRainbowCycle(); break;
+  }
 }
 
 // =============================================================================
@@ -484,7 +658,7 @@ void OnDataRecv(const uint8_t *mac, const uint8_t *data, int len) {
 
       // Turn this slot's ring GREEN
       uint8_t ring = playerToRing(slot);
-      ringOverride[ring] = pixels.Color(0, 255, 0);
+      ringOverride[ring] = RGB_GREEN;
 
       // Notify display that player is ready
       sendToDisplay(DISP_PLAYER_READY, 1, slot + 1);
@@ -537,11 +711,11 @@ void OnDataRecv(const uint8_t *mac, const uint8_t *data, int len) {
     // Immediately turn that player's ring GREEN if valid, BLINK RED if penalty
     uint8_t ring = playerToRing(playerSlot);
     if (val == TIME_PENALTY) {
-      ringOverride[ring] = pixels.Color(255, 0, 0);
+      ringOverride[ring] = RGB_RED;
       ringBlink[ring] = true;  // blink red for penalty
       Serial.printf("[NEO] Player %d ring %d -> BLINK RED (penalty)\n", playerSlot + 1, ring);
     } else {
-      ringOverride[ring] = pixels.Color(0, 255, 0);
+      ringOverride[ring] = RGB_GREEN;
       ringBlink[ring] = false;
       Serial.printf("[NEO] Player %d ring %d -> GREEN (time=%d)\n", playerSlot + 1, ring, val);
     }
@@ -553,8 +727,8 @@ void OnDataRecv(const uint8_t *mac, const uint8_t *data, int len) {
         for (int j = 0; j < MAX_PLAYERS; j++) {
           if (players[j].joined && !players[j].finished) {
             uint8_t rj = playerToRing(j);
-            if (ringOverride[rj] == 0) {
-              ringOverride[rj] = pixels.Color(255, 255, 0);
+            if (ringOverride[rj] == RGB_OFF) {
+              ringOverride[rj] = RGB_YELLOW;
               ringBlink[rj] = false;
             }
           }
@@ -581,7 +755,7 @@ void handleIdle() {
     currentRound = 0;
     neoState = NEO_IDLE_RAINBOW;
     neoOffset = 0;
-    for (int i = 0; i < 5; i++) ringOverride[i] = 0;
+    for (int i = 0; i < 5; i++) ringOverride[i] = RGB_OFF;
 
     espnowBroadcast(CMD_IDLE, 0);
     sendToDisplay(DISP_IDLE, 0, 0);
@@ -624,7 +798,7 @@ void handleJoin() {
   if (stateStartTime == 0) {
     stateStartTime = millis();
     // Clear all ring overrides
-    for (int i = 0; i < 5; i++) ringOverride[i] = 0;
+    for (int i = 0; i < 5; i++) ringOverride[i] = RGB_OFF;
 
     // Start with Player 1 prompt
     startPromptSlot(0);
@@ -818,7 +992,8 @@ void handleReaction() {
     // Hardware GO pulse to all joysticks (starts their timer + vibration)
     sendGO();
 
-    // Audio beep
+    // Audio beep - stop any pending sounds so beep plays immediately
+    audio.stop();
     audio.queueSound(SND_BEEP);
 
     Serial.println("[GO] Reaction GO fired! LEDs frozen.");
@@ -848,7 +1023,7 @@ void handleShake() {
         players[i].finished = true;
         players[i].reactionTime = TIME_PENALTY;
         uint8_t ring = playerToRing(i);
-        ringOverride[ring] = pixels.Color(255, 0, 0);
+        ringOverride[ring] = RGB_RED;
       }
     }
     neoState = NEO_STATUS;
@@ -881,26 +1056,6 @@ void handleCollect() {
     Serial.println("[COLLECT] Waiting for reaction results...");
   }
 
-  // Yellow warning phase for timed-out players: yellow for 5s then blink red
-  if (collectYellowPhase) {
-    if (millis() - collectYellowStart > TIMEOUT_REACTION) {
-      // Warning over - turn timed-out players' rings to blinking red
-      for (int i = 0; i < MAX_PLAYERS; i++) {
-        if (players[i].joined && players[i].reactionTime == TIME_PENALTY) {
-          uint8_t ring = playerToRing(i);
-          ringOverride[ring] = pixels.Color(255, 0, 0);
-          ringBlink[ring] = true;
-        }
-      }
-      neoState = NEO_STATUS;
-      gameState = STATE_SHOW_RESULTS;
-      stateStartTime = 0;
-      collectYellowPhase = false;
-      Serial.println("[COLLECT] Yellow warning done - disqualified");
-    }
-    return;
-  }
-
   // Check if all joined players have finished (results come in via ESP-NOW callback)
   bool allDone = true;
   for (int i = 0; i < MAX_PLAYERS; i++) {
@@ -910,37 +1065,51 @@ void handleCollect() {
     }
   }
 
-  // Timeout after TIMEOUT_REACTION
-  bool timedOut = false;
-  if (!allDone && millis() - stateStartTime > TIMEOUT_REACTION) {
-    // Mark remaining players as penalty with yellow rings (warning)
-    for (int i = 0; i < MAX_PLAYERS; i++) {
-      if (players[i].joined && !players[i].finished) {
-        players[i].finished = true;
-        players[i].reactionTime = TIME_PENALTY;
-        uint8_t ring = playerToRing(i);
-        ringOverride[ring] = pixels.Color(255, 255, 0);
-        ringBlink[ring] = false;  // solid yellow during warning
-        Serial.printf("[COLLECT] Player %d: TIMEOUT -> yellow warning\n", i + 1);
+  // Yellow warning phase: players can still react during this time
+  if (collectYellowPhase) {
+    if (allDone || millis() - collectYellowStart > TIMEOUT_REACTION) {
+      // Warning expired or all responded - disqualify any still unfinished
+      for (int i = 0; i < MAX_PLAYERS; i++) {
+        if (players[i].joined && !players[i].finished) {
+          players[i].finished = true;
+          players[i].reactionTime = TIME_PENALTY;
+          uint8_t ring = playerToRing(i);
+          ringOverride[ring] = RGB_RED;
+          ringBlink[ring] = true;
+        }
       }
-    }
-    timedOut = true;
-    allDone = true;
-  }
-
-  if (allDone) {
-    if (timedOut) {
-      // Some players timed out - start yellow warning phase (5s)
-      collectYellowPhase = true;
-      collectYellowStart = millis();
-      neoState = NEO_STATUS;
-      Serial.println("[COLLECT] Starting yellow warning phase (5s)");
-    } else {
-      // All responded before timeout (early-press penalties already blink red)
       neoState = NEO_STATUS;
       gameState = STATE_SHOW_RESULTS;
       stateStartTime = 0;
+      collectYellowPhase = false;
+      Serial.println("[COLLECT] Yellow warning done - disqualified remaining");
     }
+    return;
+  }
+
+  if (allDone) {
+    // All responded before timeout (early-press penalties already blink red)
+    neoState = NEO_STATUS;
+    gameState = STATE_SHOW_RESULTS;
+    stateStartTime = 0;
+    return;
+  }
+
+  // Timeout after TIMEOUT_REACTION - start yellow warning
+  // Players are NOT marked as finished yet - they can still react!
+  if (millis() - stateStartTime > TIMEOUT_REACTION) {
+    for (int i = 0; i < MAX_PLAYERS; i++) {
+      if (players[i].joined && !players[i].finished) {
+        uint8_t ring = playerToRing(i);
+        ringOverride[ring] = RGB_YELLOW;
+        ringBlink[ring] = false;  // solid yellow during warning
+        Serial.printf("[COLLECT] Player %d: yellow warning (can still react)\n", i + 1);
+      }
+    }
+    collectYellowPhase = true;
+    collectYellowStart = millis();
+    neoState = NEO_STATUS;
+    Serial.println("[COLLECT] Starting yellow warning phase (5s)");
   }
 }
 
@@ -1045,10 +1214,17 @@ void setup() {
   // pinMode(PIN_RST, OUTPUT);
   // digitalWrite(PIN_RST, LOW);
 
-  // NeoPixels
-  pixels.begin();
-  pixels.setBrightness(NEO_BRIGHTNESS);
-  pixels.show();
+  // Game rings (NeoPixelBus RMT ch0 — non-blocking)
+  pixels.Begin();
+  pixels.SetBrightness(NEO_BRIGHTNESS);
+  pixels.Show();
+
+  // WS2812B ambient strip (89 LEDs) — NeoPixelBus with RMT DMA (non-blocking)
+  strip.Begin();
+  strip.SetBrightness(STRIP_BRIGHTNESS);
+  strip.Show();
+  stripAnimStart = millis();
+  Serial.println("WS2812B strip ready (89 LEDs on GPIO16, NeoPixelBus RMT DMA)");
 
   // Audio
   if (audio.begin()) {
@@ -1109,6 +1285,7 @@ void setup() {
 void loop() {
   audio.update();
   updateNeoPixels();
+  updateStrip();
 
   switch (gameState) {
     case STATE_IDLE:            handleIdle();           break;
