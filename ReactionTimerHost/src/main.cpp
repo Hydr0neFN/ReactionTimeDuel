@@ -1401,6 +1401,17 @@ void handleShowResults() {
 
   // After 6 seconds total (3s times + 3s scores), transition to next state
   if (millis() - stateStartTime > 6000) {
+    // If no player reacted (all timed out), reset back to join phase
+    if (findRoundWinner() == 0xFF) {
+      Serial.println("[RESULTS] All players timed out - returning to join phase");
+      sendToJoysticksWithRetry(CMD_IDLE, 0);
+      sendToDisplayWithRetry(DISP_IDLE, 0, 0);
+      gameState = STATE_IDLE;
+      stateStartTime = 0;
+      resultsPhase2 = false;
+      return;
+    }
+
     if (inDeuce) {
       // Check if either deuce player has enough lead
       int diff = abs((int)players[deucePlayer[0]].score - (int)players[deucePlayer[1]].score);
