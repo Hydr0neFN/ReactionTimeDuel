@@ -60,11 +60,10 @@
 #define MPU_REG_PWR_MGMT1 0x6B
 #define MPU_REG_ACCEL_XH  0x3B
 
-// Shake detection tuning (Y axis only — gravity-free in all orientations)
-// A shake = full cycle: dynamic energy exceeds HIGH, then returns below LOW
-#define SHAKE_THRESHOLD_HIGH  6000   // dynamic Y energy to detect peak (push)
-#define SHAKE_THRESHOLD_LOW   2000   // dynamic Y energy to detect return (pull-back)
-#define SHAKE_COOLDOWN_MS     80     // minimum ms between consecutive shakes
+// Shake detection: raw magnitude threshold (works in any orientation)
+// At rest, magnitude ≈ 16384 (1g). Threshold set well above to ignore gravity.
+#define SHAKE_BASE_G          16384
+#define SHAKE_THRESHOLD       ((SHAKE_BASE_G + 6000) * 3)  // ~67152
 
 // =============================================================================
 // ESP-NOW
@@ -253,22 +252,14 @@ void OnDataSent(uint8_t *mac, uint8_t status) {
 // SHAKE COUNTING (non-blocking, called in loop during JS_SHAKE_COUNTING)
 // =============================================================================
 uint16_t shakeCount = 0;
-bool shakePeaked = false;           // true = saw peak, waiting for return
+bool shakeWasAbove = false;         // true = last sample was above threshold
 uint32_t shakeStartTime_ms = 0;
 uint8_t shakeLastReported = 0;     // last progress milestone sent (multiple of 5)
 
-// High-pass filter state: Q8 fixed-point low-pass filter on Y axis
-// Subtracting the low-pass (gravity) from raw readings gives the dynamic (shake) component
-int32_t shakeLpfAy = 0;
-bool shakeLpfReady = false;
-unsigned long shakeLastCountTime = 0;  // cooldown timer to prevent multi-counting
-
 void shakeReset() {
   shakeCount = 0;
-  shakePeaked = false;
-  shakeLpfReady = false;
+  shakeWasAbove = false;
   shakeLastReported = 0;
-  shakeLastCountTime = 0;
   shakeStartTime_ms = millis();
 }
 
@@ -277,44 +268,25 @@ uint16_t shakeUpdate() {
   int16_t ax, ay, az;
   if (!mpuReadAccel(ax, ay, az)) return 0;
 
-  if (!shakeLpfReady) {
-    // Seed the low-pass filter with current reading (Q8 fixed-point)
-    shakeLpfAy = (int32_t)ay << 8;
-    shakeLpfReady = true;
-    return 0;
-  }
+  // Raw magnitude across all axes — threshold is high enough to ignore gravity
+  int32_t mag = abs((int32_t)ax) + abs((int32_t)ay) + abs((int32_t)az);
+  bool above = mag > SHAKE_THRESHOLD;
 
-  // Update low-pass filter: EMA with alpha = 1/64 (tracks slow gravity changes only)
-  shakeLpfAy += (((int32_t)ay << 8) - shakeLpfAy) >> 6;
+  // Rising-edge detection: count when magnitude crosses above threshold
+  if (above && !shakeWasAbove) {
+    shakeCount++;
+    Serial.printf("[SHAKE] count=%d/%d  mag=%ld\n", shakeCount, shakeTarget, (long)mag);
 
-  // High-pass = raw - low-pass → removes gravity, keeps dynamic shake energy
-  int32_t dynamicY = (int32_t)ay - (shakeLpfAy >> 8);
-  int32_t energy = abs(dynamicY);
-
-  // Hysteresis state machine: peak (push) → return (pull-back) = one shake
-  // Cooldown prevents counting multiple shakes from a single motion
-  unsigned long now = millis();
-  if (!shakePeaked) {
-    if (energy > SHAKE_THRESHOLD_HIGH && (now - shakeLastCountTime) >= SHAKE_COOLDOWN_MS) {
-      shakePeaked = true;
-    }
-  } else {
-    if (energy < SHAKE_THRESHOLD_LOW) {
-      shakeCount++;
-      shakePeaked = false;
-      shakeLastCountTime = now;
-      Serial.printf("[SHAKE] count=%d/%d  energy=%ld\n", shakeCount, shakeTarget, (long)energy);
-
-      // Send progress to host every 5 shakes
-      uint8_t milestone = (shakeCount / 5) * 5;
-      if (milestone > shakeLastReported && milestone < shakeTarget) {
-        shakeLastReported = milestone;
-        uint16_t progressData = ((uint16_t)milestone << 8) | shakeTarget;
-        sendToHost(CMD_SHAKE_PROGRESS, progressData);
-        Serial.printf("[SHAKE] Progress sent: %d/%d\n", milestone, shakeTarget);
-      }
+    // Send progress to host every 5 shakes
+    uint8_t milestone = (shakeCount / 5) * 5;
+    if (milestone > shakeLastReported && milestone < shakeTarget) {
+      shakeLastReported = milestone;
+      uint16_t progressData = ((uint16_t)milestone << 8) | shakeTarget;
+      sendToHost(CMD_SHAKE_PROGRESS, progressData);
+      Serial.printf("[SHAKE] Progress sent: %d/%d\n", milestone, shakeTarget);
     }
   }
+  shakeWasAbove = above;
 
   // Check if target reached
   if (shakeCount >= shakeTarget) {
