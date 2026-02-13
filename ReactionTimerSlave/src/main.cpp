@@ -60,10 +60,11 @@
 #define MPU_REG_PWR_MGMT1 0x6B
 #define MPU_REG_ACCEL_XH  0x3B
 
-// Shake detection tuning (X+Z axes only, high-pass filtered to remove gravity)
+// Shake detection tuning (Y axis only — gravity-free in all orientations)
 // A shake = full cycle: dynamic energy exceeds HIGH, then returns below LOW
-#define SHAKE_THRESHOLD_HIGH  6000   // dynamic XZ energy to detect peak (push)
-#define SHAKE_THRESHOLD_LOW   2000   // dynamic XZ energy to detect return (pull-back)
+#define SHAKE_THRESHOLD_HIGH  6000   // dynamic Y energy to detect peak (push)
+#define SHAKE_THRESHOLD_LOW   2000   // dynamic Y energy to detect return (pull-back)
+#define SHAKE_COOLDOWN_MS     80     // minimum ms between consecutive shakes
 
 // =============================================================================
 // ESP-NOW
@@ -256,17 +257,18 @@ bool shakePeaked = false;           // true = saw peak, waiting for return
 uint32_t shakeStartTime_ms = 0;
 uint8_t shakeLastReported = 0;     // last progress milestone sent (multiple of 5)
 
-// High-pass filter state: Q8 fixed-point low-pass filter on X and Z
+// High-pass filter state: Q8 fixed-point low-pass filter on Y axis
 // Subtracting the low-pass (gravity) from raw readings gives the dynamic (shake) component
-int32_t shakeLpfAx = 0;
-int32_t shakeLpfAz = 0;
+int32_t shakeLpfAy = 0;
 bool shakeLpfReady = false;
+unsigned long shakeLastCountTime = 0;  // cooldown timer to prevent multi-counting
 
 void shakeReset() {
   shakeCount = 0;
   shakePeaked = false;
   shakeLpfReady = false;
   shakeLastReported = 0;
+  shakeLastCountTime = 0;
   shakeStartTime_ms = millis();
 }
 
@@ -277,30 +279,30 @@ uint16_t shakeUpdate() {
 
   if (!shakeLpfReady) {
     // Seed the low-pass filter with current reading (Q8 fixed-point)
-    shakeLpfAx = (int32_t)ax << 8;
-    shakeLpfAz = (int32_t)az << 8;
+    shakeLpfAy = (int32_t)ay << 8;
     shakeLpfReady = true;
     return 0;
   }
 
   // Update low-pass filter: EMA with alpha = 1/64 (tracks slow gravity changes only)
-  shakeLpfAx += (((int32_t)ax << 8) - shakeLpfAx) >> 6;
-  shakeLpfAz += (((int32_t)az << 8) - shakeLpfAz) >> 6;
+  shakeLpfAy += (((int32_t)ay << 8) - shakeLpfAy) >> 6;
 
   // High-pass = raw - low-pass → removes gravity, keeps dynamic shake energy
-  int32_t dynamicX = (int32_t)ax - (shakeLpfAx >> 8);
-  int32_t dynamicZ = (int32_t)az - (shakeLpfAz >> 8);
-  int32_t energy = abs(dynamicX) + abs(dynamicZ);
+  int32_t dynamicY = (int32_t)ay - (shakeLpfAy >> 8);
+  int32_t energy = abs(dynamicY);
 
   // Hysteresis state machine: peak (push) → return (pull-back) = one shake
+  // Cooldown prevents counting multiple shakes from a single motion
+  unsigned long now = millis();
   if (!shakePeaked) {
-    if (energy > SHAKE_THRESHOLD_HIGH) {
+    if (energy > SHAKE_THRESHOLD_HIGH && (now - shakeLastCountTime) >= SHAKE_COOLDOWN_MS) {
       shakePeaked = true;
     }
   } else {
     if (energy < SHAKE_THRESHOLD_LOW) {
       shakeCount++;
       shakePeaked = false;
+      shakeLastCountTime = now;
       Serial.printf("[SHAKE] count=%d/%d  energy=%ld\n", shakeCount, shakeTarget, (long)energy);
 
       // Send progress to host every 5 shakes

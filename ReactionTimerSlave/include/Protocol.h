@@ -12,14 +12,10 @@
 
 #include <stdint.h>
 
-// =============================================================================
-// FIRMWARE VERSION — increment on every code change
-// Encoded in CMD_REQ_ID: data_high = (MAJOR<<4)|MINOR, data_low = PATCH
-// =============================================================================
 #define FW_VERSION_MAJOR  3
 #define FW_VERSION_MINOR  0
-#define FW_VERSION_PATCH  0
-#define FW_VERSION_STRING "V3.0.0"
+#define FW_VERSION_PATCH  2
+#define FW_VERSION_STRING "V3.0.2"
 
 // =============================================================================
 // PACKET STRUCTURE
