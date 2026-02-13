@@ -81,7 +81,7 @@ enum JoystickState : uint8_t {
   JS_DONE               // result sent, waiting for next round
 };
 
-JoystickState jsState = JS_IDLE;
+volatile JoystickState jsState = JS_IDLE;
 uint8_t currentMode = MODE_REACTION;
 uint8_t shakeTarget = 10;
 uint8_t assignedSlot = 0;           // which player slot we were assigned (1-4), 0 = not assigned
@@ -363,13 +363,15 @@ void runJoystick() {
       if (g_go_received) {
         Serial.println("[GO] ESP-NOW GO received!");
 
-        // Haptic GO cue
-        vibStart(500);
-
         if (currentMode == MODE_REACTION) {
-          // Check for early button press (cheating)
-          // Button is active LOW: if it reads LOW right now, they pressed early
-          if (digitalRead(PIN_BUTTON) == LOW) {
+          // Check for early button press BEFORE starting motor
+          // (motor current draw can glitch the button pin)
+          bool earlyPress = (digitalRead(PIN_BUTTON) == LOW);
+
+          // Haptic GO cue
+          vibStart(500);
+
+          if (earlyPress) {
             Serial.println("[REACTION] PENALTY - early press!");
             sendToHostRetry(CMD_REACTION_DONE, TIME_PENALTY);
             jsState = JS_DONE;
@@ -378,6 +380,8 @@ void runJoystick() {
             Serial.println("[REACTION] Waiting for button...");
           }
         } else if (currentMode == MODE_SHAKE) {
+          // Haptic GO cue
+          vibStart(500);
           shakeReset();
           jsState = JS_SHAKE_COUNTING;
           Serial.printf("[SHAKE] Counting to %d...\n", shakeTarget);
