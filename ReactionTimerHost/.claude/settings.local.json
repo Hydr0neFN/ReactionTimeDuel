@@ -9,7 +9,8 @@
       "Bash(python:*)",
       "Read(//c/Users/Ruanyouyi/Documents/GitHub/ReactionTimeDual/**)",
       "Bash(findstr:*)",
-      "Bash(\"c:\\\\Users\\\\Ruanyouyi\\\\Documents\\\\GitHub\\\\ReactionTimeDuel\\\\tools\\\\shake_test\\\\venv\\\\Scripts\\\\pip.exe\" install pyserial matplotlib)"
+      "Bash(\"c:\\\\Users\\\\Ruanyouyi\\\\Documents\\\\GitHub\\\\ReactionTimeDuel\\\\tools\\\\shake_test\\\\venv\\\\Scripts\\\\pip.exe\" install pyserial matplotlib)",
+      "Read(//c/Users/Ruanyouyi/Documents/PlatformIO/Projects/joystick/src/**)"
     ]
   }
 }

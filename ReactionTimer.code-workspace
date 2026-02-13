@@ -5,6 +5,10 @@
 		},
 		{
 			"path": "ReactionTimerSlave"
+		},
+		{
+			"name": "joystick",
+			"path": "../../PlatformIO/Projects/joystick"
 		}
 	],
 	"settings": {}
