@@ -437,14 +437,19 @@ void updateNeoPixels() {
                 break;
               }
             }
-            uint8_t pTarget = shakeProgressTarget[player];
-            if (player >= 0 && pTarget > 0) {
-              // White background with green progress overlay
-              uint8_t ledsLit = (uint8_t)((uint16_t)shakeProgress[player] * LEDS_PER_RING / pTarget);
-              if (ledsLit > LEDS_PER_RING) ledsLit = LEDS_PER_RING;
-              int startIdx = r * LEDS_PER_RING;
-              for (int i = 0; i < LEDS_PER_RING; i++) {
-                pixels.SetPixelColor(startIdx + i, (i < ledsLit) ? RGB_GREEN : RGB_WHITE);
+            if (player >= 0 && isActivePlayer(player)) {
+              uint8_t pTarget = shakeProgressTarget[player];
+              if (pTarget > 0) {
+                // White background with green progress overlay
+                uint8_t ledsLit = (uint8_t)((uint16_t)shakeProgress[player] * LEDS_PER_RING / pTarget);
+                if (ledsLit > LEDS_PER_RING) ledsLit = LEDS_PER_RING;
+                int startIdx = r * LEDS_PER_RING;
+                for (int i = 0; i < LEDS_PER_RING; i++) {
+                  pixels.SetPixelColor(startIdx + i, (i < ledsLit) ? RGB_GREEN : RGB_WHITE);
+                }
+              } else {
+                // No progress yet - show white background while waiting
+                setRingColor(r, RGB_WHITE);
               }
             } else {
               setRingColor(r, RGB_OFF);
