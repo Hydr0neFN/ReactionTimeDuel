@@ -99,6 +99,9 @@ unsigned long promptStartTime = 0;  // when current prompt started
 bool joinComplete = false;          // true = enough players, waiting 1s before countdown
 unsigned long joinCompleteTime = 0; // when join completed (for 1s color-display delay)
 
+// Consecutive all-timeout tracking
+uint8_t consecutiveTimeouts = 0;    // how many rounds in a row all players timed out
+
 // Round config
 uint8_t gameMode = MODE_REACTION;   // current round mode
 uint8_t delayIdx = 0;               // index into REACT_DELAYS
@@ -108,7 +111,7 @@ uint8_t lastTargetIdx = 0xFF;
 
 // Mode shuffle bag: ensures both modes are played before repeating
 uint8_t modeBag[2] = {MODE_REACTION, MODE_SHAKE};
-uint8_t modeBagIdx = 2;  // start at 2 to trigger reshuffle on first use
+uint8_t modeBagIdx = 0;  // alternates: 0=REACTION, 1=SHAKE, 2=REACTION, ...
 
 // First-time instruction tracking (only show instructions first time each mode is played)
 bool reactionInstructPlayed = false;
@@ -120,8 +123,9 @@ bool reactionFirstInstruct = false;     // true when instructions were queued th
 
 // Shake countdown tracking
 unsigned long shakeStartTime = 0;   // for center ring countdown
-uint8_t shakeProgress[MAX_PLAYERS] = {0,0,0,0};  // current shake count per player (from CMD_SHAKE_PROGRESS)
-uint8_t shakeTargetCount = 0;       // current round's shake target (10/15/20)
+uint8_t shakeProgress[MAX_PLAYERS] = {0,0,0,0};      // current shake count per player (from CMD_SHAKE_PROGRESS)
+uint8_t shakeProgressTarget[MAX_PLAYERS] = {0,0,0,0}; // per-player shake target (from CMD_SHAKE_PROGRESS)
+uint8_t shakeTargetCount = 0;       // current round's displayed shake target (10/15/20)
 
 // Countdown
 uint8_t countdownNum = 3;
@@ -181,21 +185,12 @@ uint8_t getRandomIndex(uint8_t *last, uint8_t max) {
   return idx;
 }
 
-// Shuffle bag for game modes: ensures both modes are played before repeating
+// Alternating game modes: REACTION, SHAKE, REACTION, SHAKE, ...
 uint8_t getNextGameMode() {
-  if (modeBagIdx >= 2) {
-    // Reshuffle: swap randomly
-    modeBagIdx = 0;
-    if (random(2) == 0) {
-      uint8_t tmp = modeBag[0];
-      modeBag[0] = modeBag[1];
-      modeBag[1] = tmp;
-    }
-    Serial.printf("[MODE] Reshuffled bag: [%s, %s]\n",
-                  modeBag[0] == MODE_REACTION ? "REACT" : "SHAKE",
-                  modeBag[1] == MODE_REACTION ? "REACT" : "SHAKE");
-  }
-  return modeBag[modeBagIdx++];
+  uint8_t mode = modeBag[modeBagIdx % 2];
+  Serial.printf("[MODE] Round mode: %s\n", mode == MODE_REACTION ? "REACT" : "SHAKE");
+  modeBagIdx++;
+  return mode;
 }
 
 // Is this player active in the current round? (filters for deuce)
@@ -256,7 +251,8 @@ void resetPlayers() {
   }
   joinedCount = 0;
   currentPromptSlot = 0;
-  modeBagIdx = 2;  // reset shuffle bag for new game
+  consecutiveTimeouts = 0;
+  modeBagIdx = 0;  // reset to start with REACTION
   reactionInstructPlayed = false;  // reset instruction flag for new game
   shakeInstructPlayed = false;
   inDeuce = false;
@@ -271,6 +267,7 @@ void resetRound() {
     players[i].finished = false;
     players[i].reactionTime = 0xFFFF;
     shakeProgress[i] = 0;
+    shakeProgressTarget[i] = 0;
   }
   for (int i = 0; i < 5; i++) { ringOverride[i] = RGB_OFF; ringBlink[i] = false; }
 }
@@ -440,9 +437,10 @@ void updateNeoPixels() {
                 break;
               }
             }
-            if (player >= 0 && shakeTargetCount > 0) {
+            uint8_t pTarget = shakeProgressTarget[player];
+            if (player >= 0 && pTarget > 0) {
               // White background with green progress overlay
-              uint8_t ledsLit = (uint8_t)((uint16_t)shakeProgress[player] * LEDS_PER_RING / shakeTargetCount);
+              uint8_t ledsLit = (uint8_t)((uint16_t)shakeProgress[player] * LEDS_PER_RING / pTarget);
               if (ledsLit > LEDS_PER_RING) ledsLit = LEDS_PER_RING;
               int startIdx = r * LEDS_PER_RING;
               for (int i = 0; i < LEDS_PER_RING; i++) {
@@ -902,6 +900,7 @@ void OnDataRecv(const uint8_t *mac, const uint8_t *data, int len) {
   if (pkt.cmd == CMD_SHAKE_PROGRESS) {
     if (playerSlot >= 0 && playerSlot < MAX_PLAYERS && gameState == STATE_SHAKE) {
       shakeProgress[playerSlot] = pkt.data_high;
+      shakeProgressTarget[playerSlot] = pkt.data_low;
       Serial.printf("[SHAKE] Player %d progress: %d/%d\n",
                     playerSlot + 1, pkt.data_high, pkt.data_low);
     }
@@ -970,13 +969,17 @@ void OnDataSent(const uint8_t *mac, esp_now_send_status_t status) {
 void handleIdle() {
   if (stateStartTime == 0) {
     stateStartTime = millis();
+
+    // Broadcast IDLE to ALL joysticks before resetting player state
+    // (sendToJoysticksWithRetry won't work after resetPlayers clears slotToStick)
+    espnowBroadcast(CMD_IDLE, 0);
+
     resetPlayers();
     currentRound = 0;
     neoState = NEO_IDLE_RAINBOW;
     neoOffset = 0;
     for (int i = 0; i < 5; i++) ringOverride[i] = RGB_OFF;
 
-    sendToJoysticksWithRetry(CMD_IDLE, 0);
     sendToDisplayWithRetry(DISP_IDLE, 0, 0);
     audio.queueSound(SND_PRESS_TO_JOIN);
     Serial.println("[STATE] IDLE");
@@ -1401,15 +1404,21 @@ void handleShowResults() {
 
   // After 6 seconds total (3s times + 3s scores), transition to next state
   if (millis() - stateStartTime > 6000) {
-    // If no player reacted (all timed out), reset back to join phase
+    // Track consecutive all-timeout rounds; reset to join after 2 in a row
     if (findRoundWinner() == 0xFF) {
-      Serial.println("[RESULTS] All players timed out - returning to join phase");
-      sendToJoysticksWithRetry(CMD_IDLE, 0);
-      sendToDisplayWithRetry(DISP_IDLE, 0, 0);
-      gameState = STATE_IDLE;
-      stateStartTime = 0;
-      resultsPhase2 = false;
-      return;
+      consecutiveTimeouts++;
+      Serial.printf("[RESULTS] All players timed out (%d consecutive)\n", consecutiveTimeouts);
+      if (consecutiveTimeouts >= 2) {
+        Serial.println("[RESULTS] 2 consecutive timeouts - returning to join phase");
+        sendToJoysticksWithRetry(CMD_IDLE, 0);
+        sendToDisplayWithRetry(DISP_IDLE, 0, 0);
+        gameState = STATE_IDLE;
+        stateStartTime = 0;
+        resultsPhase2 = false;
+        return;
+      }
+    } else {
+      consecutiveTimeouts = 0;
     }
 
     if (inDeuce) {

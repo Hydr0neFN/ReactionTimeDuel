@@ -177,6 +177,14 @@ void sendToHost(uint8_t cmd, uint16_t data) {
   Serial.printf("[SEND] cmd=0x%02X data=%d result=%d\n", cmd, data, result);
 }
 
+// Send critical result with retries (reaction/shake done)
+void sendToHostRetry(uint8_t cmd, uint16_t data) {
+  for (int i = 0; i < 3; i++) {
+    sendToHost(cmd, data);
+    delay(20);
+  }
+}
+
 // =============================================================================
 // ESP-NOW CALLBACK
 // =============================================================================
@@ -209,7 +217,7 @@ void OnDataRecv(uint8_t *mac, uint8_t *data, uint8_t len) {
     case CMD_GAME_START:
       // data_high = mode, data_low = param (shake target or 0)
       currentMode = pkt.data_high;
-      shakeTarget = pkt.data_low;
+      shakeTarget = pkt.data_low * 3;  // MPU detects ~3 edges per shake, so triple the target
       jsState = JS_WAITING_GO;
       g_go_received = false;
       g_button_pressed = false;
@@ -265,6 +273,11 @@ void shakeReset() {
 
 // Returns: 0 = still counting, TIME_PENALTY = timeout, >0 = completion time in ms
 uint16_t shakeUpdate() {
+  // Throttle to ~200Hz (matches working joystick test code)
+  static unsigned long lastRead = 0;
+  if (millis() - lastRead < 5) return 0;
+  lastRead = millis();
+
   int16_t ax, ay, az;
   if (!mpuReadAccel(ax, ay, az)) return 0;
 
@@ -277,13 +290,15 @@ uint16_t shakeUpdate() {
     shakeCount++;
     Serial.printf("[SHAKE] count=%d/%d  mag=%ld\n", shakeCount, shakeTarget, (long)mag);
 
-    // Send progress to host every 5 shakes
-    uint8_t milestone = (shakeCount / 5) * 5;
+    // Send progress to host in steps matched to internal target
+    // ~12 updates total (one per ring LED), using internal counts
+    uint8_t step = shakeTarget / 12;
+    if (step < 1) step = 1;
+    uint8_t milestone = (shakeCount / step) * step;
     if (milestone > shakeLastReported && milestone < shakeTarget) {
       shakeLastReported = milestone;
       uint16_t progressData = ((uint16_t)milestone << 8) | shakeTarget;
       sendToHost(CMD_SHAKE_PROGRESS, progressData);
-      Serial.printf("[SHAKE] Progress sent: %d/%d\n", milestone, shakeTarget);
     }
   }
   shakeWasAbove = above;
@@ -356,7 +371,7 @@ void runJoystick() {
           // Button is active LOW: if it reads LOW right now, they pressed early
           if (digitalRead(PIN_BUTTON) == LOW) {
             Serial.println("[REACTION] PENALTY - early press!");
-            sendToHost(CMD_REACTION_DONE, TIME_PENALTY);
+            sendToHostRetry(CMD_REACTION_DONE, TIME_PENALTY);
             jsState = JS_DONE;
           } else {
             jsState = JS_REACTION_TIMING;
@@ -379,7 +394,7 @@ void runJoystick() {
         if (elapsed_ms == 0) elapsed_ms = 1; // minimum 1ms
 
         Serial.printf("[REACTION] Time: %d ms (%d us)\n", elapsed_ms, elapsed_us);
-        sendToHost(CMD_REACTION_DONE, elapsed_ms);
+        sendToHostRetry(CMD_REACTION_DONE, elapsed_ms);
 
         // Brief vibrate on completion
         vibStart(100);
@@ -390,7 +405,7 @@ void runJoystick() {
       // Use millis comparison against GO time (convert g_go_time_us to ms)
       if (millis() > (g_go_time_us / 1000) + TIMEOUT_REACTION) {
         Serial.println("[REACTION] TIMEOUT");
-        sendToHost(CMD_REACTION_DONE, TIME_PENALTY);
+        sendToHostRetry(CMD_REACTION_DONE, TIME_PENALTY);
         jsState = JS_DONE;
       }
       break;
@@ -405,7 +420,7 @@ void runJoystick() {
           // Vibrate on completion
           vibStart(200);
         }
-        sendToHost(CMD_SHAKE_DONE, result);
+        sendToHostRetry(CMD_SHAKE_DONE, result);
         jsState = JS_DONE;
       }
       break;
@@ -413,6 +428,13 @@ void runJoystick() {
 
     case JS_DONE:
       // Wait for next GAME_START or IDLE from host
+      // Safety: if stuck in DONE for 60s (missed CMD_IDLE), auto-reset
+      if (millis() - (g_go_time_us / 1000) > 60000) {
+        jsState = JS_IDLE;
+        assignedSlot = 0;
+        joinSent = false;
+        Serial.println("[DONE] Timeout - auto-reset to IDLE");
+      }
       break;
   }
 }
