@@ -38,6 +38,9 @@ static bool s_ready_mask_dirty = false;
 static uint8_t s_prompt_mask = 0;
 static bool s_prompt_mask_dirty = false;
 static uint8_t s_prompt_slot = 0;
+static uint8_t s_shake_number = 0;
+static bool s_show_deuce = false;
+static bool s_applied_show_deuce = false;
 
 // Match panel background color (from UI): 0x101418
 static constexpr uint32_t kBorderDefault = 0x101418;
@@ -76,6 +79,7 @@ static void reset_panel_borders(void) {
     }
 }
 
+
 enum class ScreenMode : uint8_t {
     NONE,
     IDLE,
@@ -102,6 +106,17 @@ static UiState s_applied_state;
 static constexpr uint8_t kEspnowChannel = ESPNOW_CHANNEL;
 static const uint8_t kHostMac[6] = {0x88, 0x57, 0x21, 0xB3, 0x05, 0xAC};
 
+static void send_ack(uint8_t acked_cmd) {
+    GamePacket pkt;
+    buildPacket(&pkt, ID_HOST, ID_DISPLAY, CMD_ACK, (uint16_t)acked_cmd);
+    esp_err_t err = esp_now_send(kHostMac, reinterpret_cast<const uint8_t*>(&pkt), sizeof(pkt));
+    if (err == ESP_OK) {
+        ESP_LOGI(kTag, "ACK sent for cmd=0x%02X", acked_cmd);
+    } else {
+        ESP_LOGW(kTag, "ACK send failed for cmd=0x%02X err=%d", acked_cmd, (int)err);
+    }
+}
+
 static inline void safe_flag(lv_obj_t* obj, bool hide) {
     if (!obj) {
         return;
@@ -122,10 +137,12 @@ static void show_idle() {
     safe_flag(ui_imgGo, true);
     safe_flag(ui_imgStart, false);
     safe_flag(ui_centerCircle, false);
+    safe_flag(ui_shakeNumber, true);
     safe_flag(ui_imgReactMode, true);
     safe_flag(ui_imgShakeMode, true);
     safe_flag(ui_imgWinner, true);
     safe_flag(ui_labelWinnerNum, true);
+    safe_flag(ui_imgDeuce, true);
     reset_panel_borders();
 }
 
@@ -135,8 +152,10 @@ static void show_countdown(uint8_t num) {
         lv_label_set_text_fmt(ui_labelCountDown, "%u", (unsigned)num);
         safe_flag(ui_labelCountDown, false);
     }
+    safe_flag(ui_shakeNumber, true);
     safe_flag(ui_imgReactMode, true);
     safe_flag(ui_imgShakeMode, true);
+    safe_flag(ui_imgDeuce, true);
     // lv_obj_add_flag(ui_labelPlayMode, LV_OBJ_FLAG_HIDDEN);
     // lv_obj_add_flag(ui_imgWinner, LV_OBJ_FLAG_HIDDEN);
     // lv_obj_add_flag(ui_labelWinnerNum, LV_OBJ_FLAG_HIDDEN);
@@ -147,10 +166,12 @@ static void show_go() {
     safe_flag(ui_centerCircle, false);
     safe_flag(ui_imgGo, false);
     safe_flag(ui_labelCountDown, true);
+    safe_flag(ui_shakeNumber, true);
     safe_flag(ui_imgReactMode, true);
     safe_flag(ui_imgShakeMode, true);
     safe_flag(ui_imgWinner, true);
     safe_flag(ui_labelWinnerNum, true);
+    safe_flag(ui_imgDeuce, true);
 }
 
 static void show_mode_banner() {
@@ -158,10 +179,12 @@ static void show_mode_banner() {
     safe_flag(ui_imgStart, true);
     safe_flag(ui_centerCircle, false);
     safe_flag(ui_labelCountDown, true);
+    safe_flag(ui_shakeNumber, true);
     safe_flag(ui_imgReactMode, true);
     safe_flag(ui_imgShakeMode, true);
     safe_flag(ui_imgWinner, true);
     safe_flag(ui_labelWinnerNum, true);
+    safe_flag(ui_imgDeuce, true);
 }
 
 static lv_obj_t* player_time_label(uint8_t player) {
@@ -181,7 +204,6 @@ static void update_player_label(uint8_t player) {
     }
     uint16_t time_ms = s_player_time_ms[player - 1];
     int16_t score = s_player_score[player - 1];
-    bool ready = s_pending_state.ready[player - 1];
     char buf[32];
     if (time_ms == 0xFFFF) {
         if (score >= 0) {
@@ -189,13 +211,7 @@ static void update_player_label(uint8_t player) {
             lv_label_set_text(label, buf);
             lv_obj_clear_flag(label, LV_OBJ_FLAG_HIDDEN);
         } else {
-            if (ready) {
-                // Player joined but no time yet; show placeholder.
-                lv_label_set_text(label, "--");
-                lv_obj_clear_flag(label, LV_OBJ_FLAG_HIDDEN);
-            } else {
-                lv_obj_add_flag(label, LV_OBJ_FLAG_HIDDEN);
-            }
+            lv_obj_add_flag(label, LV_OBJ_FLAG_HIDDEN);
         }
         return;
     }
@@ -240,10 +256,12 @@ static void show_winner(uint8_t player) {
     safe_flag(ui_imgStart, true);
     safe_flag(ui_centerCircle, true);
     safe_flag(ui_labelCountDown, true);
+    safe_flag(ui_shakeNumber, true);
     safe_flag(ui_imgReactMode, true);
     safe_flag(ui_imgShakeMode, true);
     safe_flag(ui_imgWinner, false);
     safe_flag(ui_labelWinnerNum, false);
+    safe_flag(ui_imgDeuce, true);
     if (ui_labelWinnerNum) {
         lv_label_set_text_fmt(ui_labelWinnerNum, "%u", (unsigned)player);
     }
@@ -258,6 +276,10 @@ static void update_state_from_packet(const uint8_t *pkt) {
     // Only handle display commands; ignore joystick/other commands.
     if (cmd < DISP_IDLE || cmd > DISP_PLAYER_PROMPT) {
         return;
+    }
+
+    if (cmd != DISP_DEUCE) {
+        s_show_deuce = false;
     }
 
     if (s_has_last_cmd &&
@@ -363,10 +385,14 @@ static void update_state_from_packet(const uint8_t *pkt) {
             s_prompt_mask_dirty = true;
             s_pending_state.winner = 0;
             s_show_scores = false;
+            s_shake_number = data_low;
             for (int i = 0; i < 4; i++) {
                 s_pending_state.time_ms[i] = 0xFFFF;
                 s_pending_state.score[i] = -1;
             }
+            break;
+        case DISP_DEUCE:
+            s_show_deuce = true;
             break;
         case DISP_TIME_P1:
             s_pending_state.time_ms[0] = data;
@@ -432,6 +458,10 @@ static void apply_state(void) {
                 show_mode_banner();
                 safe_flag(ui_imgReactMode, true);
                 safe_flag(ui_imgShakeMode, false);
+                if (ui_shakeNumber) {
+                    lv_label_set_text_fmt(ui_shakeNumber, "%u", (unsigned)s_shake_number);
+                }
+                safe_flag(ui_shakeNumber, false);
                 clear_time_labels();
                 show_winner(0);
                 break;
@@ -456,6 +486,11 @@ static void apply_state(void) {
         s_applied_state.winner = s_pending_state.winner;
     }
 
+    if (s_show_deuce != s_applied_show_deuce) {
+        safe_flag(ui_imgDeuce, !s_show_deuce);
+        s_applied_show_deuce = s_show_deuce;
+    }
+
     if (s_show_scores && !s_applied_show_scores) {
         for (int i = 0; i < 4; i++) {
             update_player_label(i + 1);
@@ -471,7 +506,6 @@ static void apply_state(void) {
             } else {
                 set_panel_border_color(i + 1, kBorderDefault);
             }
-            update_player_label(i + 1);
         }
     }
 
@@ -585,6 +619,14 @@ static void on_data_recv(const esp_now_recv_info_t* info, const uint8_t* data, i
     } else {
         ESP_LOGI(kTag, "ESPNOW rx len=%d src=unknown cmd=0x%02X data=%u:%u",
                  len, data[3], data[4], data[5]);
+    }
+
+    // Send ACK for commands that the host retries.
+    uint8_t cmd = data[3];
+    if (cmd >= DISP_IDLE && cmd <= DISP_PLAYER_PROMPT) {
+        if (!(cmd >= DISP_TIME_P1 && cmd <= DISP_TIME_P4) && cmd != DISP_SCORES) {
+            send_ack(cmd);
+        }
     }
     // Fast-path time updates so they aren't lost when multiple packets arrive quickly.
     if (data[3] >= DISP_TIME_P1 && data[3] <= DISP_TIME_P4) {

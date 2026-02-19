@@ -5,7 +5,7 @@
 
 #include "../ui.h"
 
-lv_obj_t *ui_MainScreen = NULL;lv_obj_t *ui_centerCircle = NULL;lv_obj_t *ui_imgStart = NULL;lv_obj_t *ui_imgGo = NULL;lv_obj_t *ui_Panel1 = NULL;lv_obj_t *ui_Panel3 = NULL;lv_obj_t *ui_Panel2 = NULL;lv_obj_t *ui_Panel4 = NULL;lv_obj_t *ui_player1 = NULL;lv_obj_t *ui_player2 = NULL;lv_obj_t *ui_player3 = NULL;lv_obj_t *ui_player4 = NULL;lv_obj_t *ui_labelCountDown = NULL;lv_obj_t *ui_labelPlayer1Timing = NULL;lv_obj_t *ui_labelPlayer2Timing = NULL;lv_obj_t *ui_labelPlayer3Timing = NULL;lv_obj_t *ui_labelPlayer4Timing = NULL;lv_obj_t *ui_imgWinner = NULL;lv_obj_t *ui_labelWinnerNum = NULL;lv_obj_t *ui_wifiNotOK = NULL;lv_obj_t *ui_wifiOk = NULL;lv_obj_t *ui_imgPressJoyn = NULL;lv_obj_t *ui_imgReactMode = NULL;lv_obj_t *ui_imgShakeMode = NULL;
+lv_obj_t *ui_MainScreen = NULL;lv_obj_t *ui_centerCircle = NULL;lv_obj_t *ui_imgStart = NULL;lv_obj_t *ui_imgGo = NULL;lv_obj_t *ui_Panel1 = NULL;lv_obj_t *ui_Panel3 = NULL;lv_obj_t *ui_Panel2 = NULL;lv_obj_t *ui_Panel4 = NULL;lv_obj_t *ui_player1 = NULL;lv_obj_t *ui_player2 = NULL;lv_obj_t *ui_player3 = NULL;lv_obj_t *ui_player4 = NULL;lv_obj_t *ui_labelCountDown = NULL;lv_obj_t *ui_labelPlayer1Timing = NULL;lv_obj_t *ui_labelPlayer2Timing = NULL;lv_obj_t *ui_labelPlayer3Timing = NULL;lv_obj_t *ui_labelPlayer4Timing = NULL;lv_obj_t *ui_imgWinner = NULL;lv_obj_t *ui_labelWinnerNum = NULL;lv_obj_t *ui_imgPressJoyn = NULL;lv_obj_t *ui_imgReactMode = NULL;lv_obj_t *ui_imgShakeMode = NULL;lv_obj_t *ui_shakeNumber = NULL;lv_obj_t *ui_imgDeuce = NULL;
 // event funtions
 
 // build funtions
@@ -227,28 +227,6 @@ lv_obj_set_style_text_color(ui_labelWinnerNum, lv_color_hex(0xFFFFFF), LV_PART_M
 lv_obj_set_style_text_opa(ui_labelWinnerNum, 255, LV_PART_MAIN| LV_STATE_DEFAULT);
 lv_obj_set_style_text_font(ui_labelWinnerNum, &ui_font_MonserratBold64V2, LV_PART_MAIN| LV_STATE_DEFAULT);
 
-ui_wifiNotOK = lv_img_create(ui_MainScreen);
-lv_img_set_src(ui_wifiNotOK, &ui_img_2097260803);
-lv_obj_set_width( ui_wifiNotOK, LV_SIZE_CONTENT);  /// 512
-lv_obj_set_height( ui_wifiNotOK, LV_SIZE_CONTENT);   /// 512
-lv_obj_set_x( ui_wifiNotOK, -370 );
-lv_obj_set_y( ui_wifiNotOK, 216 );
-lv_obj_set_align( ui_wifiNotOK, LV_ALIGN_CENTER );
-lv_obj_add_flag( ui_wifiNotOK, LV_OBJ_FLAG_HIDDEN | LV_OBJ_FLAG_ADV_HITTEST );   /// Flags
-lv_obj_clear_flag( ui_wifiNotOK, LV_OBJ_FLAG_SCROLLABLE );    /// Flags
-lv_img_set_zoom(ui_wifiNotOK,16);
-
-ui_wifiOk = lv_img_create(ui_MainScreen);
-lv_img_set_src(ui_wifiOk, &ui_img_1198241503);
-lv_obj_set_width( ui_wifiOk, LV_SIZE_CONTENT);  /// 512
-lv_obj_set_height( ui_wifiOk, LV_SIZE_CONTENT);   /// 512
-lv_obj_set_x( ui_wifiOk, -370 );
-lv_obj_set_y( ui_wifiOk, 216 );
-lv_obj_set_align( ui_wifiOk, LV_ALIGN_CENTER );
-lv_obj_add_flag( ui_wifiOk, LV_OBJ_FLAG_HIDDEN | LV_OBJ_FLAG_ADV_HITTEST );   /// Flags
-lv_obj_clear_flag( ui_wifiOk, LV_OBJ_FLAG_SCROLLABLE );    /// Flags
-lv_img_set_zoom(ui_wifiOk,16);
-
 ui_imgPressJoyn = lv_img_create(ui_MainScreen);
 lv_img_set_src(ui_imgPressJoyn, &ui_img_img_pressjoyn_png);
 lv_obj_set_width( ui_imgPressJoyn, LV_SIZE_CONTENT);  /// 250
@@ -273,11 +251,34 @@ ui_imgShakeMode = lv_img_create(ui_MainScreen);
 lv_img_set_src(ui_imgShakeMode, &ui_img_img_shakemode_png);
 lv_obj_set_width( ui_imgShakeMode, LV_SIZE_CONTENT);  /// 276
 lv_obj_set_height( ui_imgShakeMode, LV_SIZE_CONTENT);   /// 130
-lv_obj_set_x( ui_imgShakeMode, 9 );
-lv_obj_set_y( ui_imgShakeMode, 79 );
+lv_obj_set_x( ui_imgShakeMode, 10 );
+lv_obj_set_y( ui_imgShakeMode, 49 );
 lv_obj_set_align( ui_imgShakeMode, LV_ALIGN_CENTER );
-lv_obj_add_flag( ui_imgShakeMode, LV_OBJ_FLAG_ADV_HITTEST );   /// Flags
+lv_obj_add_flag( ui_imgShakeMode, LV_OBJ_FLAG_HIDDEN | LV_OBJ_FLAG_ADV_HITTEST );   /// Flags
 lv_obj_clear_flag( ui_imgShakeMode, LV_OBJ_FLAG_SCROLLABLE );    /// Flags
+lv_img_set_zoom(ui_imgShakeMode,230);
+
+ui_shakeNumber = lv_label_create(ui_MainScreen);
+lv_obj_set_width( ui_shakeNumber, LV_SIZE_CONTENT);  /// 1
+lv_obj_set_height( ui_shakeNumber, LV_SIZE_CONTENT);   /// 1
+lv_obj_set_x( ui_shakeNumber, 18 );
+lv_obj_set_y( ui_shakeNumber, 158 );
+lv_obj_set_align( ui_shakeNumber, LV_ALIGN_CENTER );
+lv_label_set_text(ui_shakeNumber,"20");
+lv_obj_add_flag( ui_shakeNumber, LV_OBJ_FLAG_HIDDEN );   /// Flags
+lv_obj_set_style_text_color(ui_shakeNumber, lv_color_hex(0xFFFF00), LV_PART_MAIN | LV_STATE_DEFAULT );
+lv_obj_set_style_text_opa(ui_shakeNumber, 255, LV_PART_MAIN| LV_STATE_DEFAULT);
+lv_obj_set_style_text_font(ui_shakeNumber, &ui_font_MontserratBold120, LV_PART_MAIN| LV_STATE_DEFAULT);
+
+ui_imgDeuce = lv_img_create(ui_MainScreen);
+lv_img_set_src(ui_imgDeuce, &ui_img_img_deucemode_png);
+lv_obj_set_width( ui_imgDeuce, LV_SIZE_CONTENT);  /// 266
+lv_obj_set_height( ui_imgDeuce, LV_SIZE_CONTENT);   /// 60
+lv_obj_set_x( ui_imgDeuce, 15 );
+lv_obj_set_y( ui_imgDeuce, 73 );
+lv_obj_set_align( ui_imgDeuce, LV_ALIGN_CENTER );
+lv_obj_add_flag( ui_imgDeuce, LV_OBJ_FLAG_ADV_HITTEST );   /// Flags
+lv_obj_clear_flag( ui_imgDeuce, LV_OBJ_FLAG_SCROLLABLE );    /// Flags
 
 }
 
@@ -305,10 +306,10 @@ ui_labelPlayer3Timing= NULL;
 ui_labelPlayer4Timing= NULL;
 ui_imgWinner= NULL;
 ui_labelWinnerNum= NULL;
-ui_wifiNotOK= NULL;
-ui_wifiOk= NULL;
 ui_imgPressJoyn= NULL;
 ui_imgReactMode= NULL;
 ui_imgShakeMode= NULL;
+ui_shakeNumber= NULL;
+ui_imgDeuce= NULL;
 
 }

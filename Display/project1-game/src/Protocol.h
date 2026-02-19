@@ -66,6 +66,7 @@ typedef struct __attribute__((packed)) {
 #define DISP_FINAL_WINNER   0x3C  // Final winner (data_low = player 1-4)
 #define DISP_PLAYER_READY   0x3D  // Player joined/ready (data_high = player slot 1-4, data_low = joystick ID)
 #define DISP_PLAYER_PROMPT  0x3E  // Prompt player to join (data_low = player 1-4, blink on display)
+#define DISP_DEUCE          0x3F  // Deuce! (data_high = player A 1-4, data_low = player B 1-4) 
 
 // =============================================================================
 // COMMANDS: Host → Joysticks

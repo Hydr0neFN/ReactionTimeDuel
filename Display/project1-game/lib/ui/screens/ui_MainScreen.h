@@ -32,11 +32,11 @@ extern lv_obj_t *ui_labelPlayer3Timing;
 extern lv_obj_t *ui_labelPlayer4Timing;
 extern lv_obj_t *ui_imgWinner;
 extern lv_obj_t *ui_labelWinnerNum;
-extern lv_obj_t *ui_wifiNotOK;
-extern lv_obj_t *ui_wifiOk;
 extern lv_obj_t *ui_imgPressJoyn;
 extern lv_obj_t *ui_imgReactMode;
 extern lv_obj_t *ui_imgShakeMode;
+extern lv_obj_t *ui_shakeNumber;
+extern lv_obj_t *ui_imgDeuce;
 // CUSTOM VARIABLES
 
 #ifdef __cplusplus

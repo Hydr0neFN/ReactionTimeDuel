@@ -10,11 +10,10 @@ SET(SOURCES screens/ui_MainScreen.c
     images/ui_img_img_player3_png.c
     images/ui_img_img_player4_png.c
     images/ui_img_img_group_winner_png.c
-    images/ui_img_2097260803.c
-    images/ui_img_1198241503.c
     images/ui_img_img_pressjoyn_png.c
     images/ui_img_img_reactmode_png.c
     images/ui_img_img_shakemode_png.c
+    images/ui_img_img_deucemode_png.c
     fonts/ui_font_MonserratBold64V2.c
     fonts/ui_font_MontserratBold120.c)
 

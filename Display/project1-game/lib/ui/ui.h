@@ -32,11 +32,10 @@ LV_IMG_DECLARE( ui_img_img_player2_png);   // assets/img/player2.png
 LV_IMG_DECLARE( ui_img_img_player3_png);   // assets/img/player3.png
 LV_IMG_DECLARE( ui_img_img_player4_png);   // assets/img/player4.png
 LV_IMG_DECLARE( ui_img_img_group_winner_png);   // assets/img/Group Winner.png
-LV_IMG_DECLARE( ui_img_2097260803);   // assets/img/wifi-svgrepo-com.png
-LV_IMG_DECLARE( ui_img_1198241503);   // assets/img/wifi-slash-svgrepo-com.png
 LV_IMG_DECLARE( ui_img_img_pressjoyn_png);   // assets/img/pressJoyn.png
 LV_IMG_DECLARE( ui_img_img_reactmode_png);   // assets/img/reactMode.png
 LV_IMG_DECLARE( ui_img_img_shakemode_png);   // assets/img/shakeMode.png
+LV_IMG_DECLARE( ui_img_img_deucemode_png);   // assets/img/deuceMode.png
 
 // FONTS
 LV_FONT_DECLARE( ui_font_MonserratBold64V2);
