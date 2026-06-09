@@ -1,5 +1,5 @@
 # Reaction Time Duel
-
+## This project was selected for the Hanze Open Day showcase! Yipee!
 A competitive multiplayer reaction-time game built with ESP32 and ESP8266 microcontrollers, communicating wirelessly over ESP-NOW. Up to 4 players compete across 5 rounds in two game modes using custom wireless joystick controllers.
 
 ## Game Modes
