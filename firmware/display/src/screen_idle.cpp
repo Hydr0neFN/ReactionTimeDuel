@@ -150,8 +150,12 @@ lv_obj_t *screen_idle_init()
     lv_obj_set_style_border_color(qr, lv_color_white(), 0);
     lv_obj_set_style_border_width(qr, 4, 0);
     lv_obj_align(qr, LV_ALIGN_BOTTOM_LEFT, 16, -14);
-    lv_obj_t *qt = th_label(s_scr, TH_FONT20, TH_TEXT2, "My Github!");
+    lv_obj_t *qt = th_label(s_scr, TH_FONT20, TH_TEXT2, "Project Page");
     lv_obj_align_to(qt, qr, LV_ALIGN_OUT_RIGHT_BOTTOM, 12, 0);
+
+    lv_obj_t *credit = th_label(s_scr, &lv_font_montserrat_16, TH_TEXT2,
+                                "Made with love by Dogari A. and Juan Y.");
+    lv_obj_align(credit, LV_ALIGN_BOTTOM_MID, 0, -16);
 
     ui_chrome_create(s_scr, s_chrome, LV_OPA_COVER);
 
