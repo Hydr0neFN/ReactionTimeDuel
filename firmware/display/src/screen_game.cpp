@@ -284,6 +284,61 @@ static bool scores_shown(const StatePacket &st)
     return st.phase >= PH_ANNOUNCE && st.phase <= PH_FINAL && st.round >= 1;
 }
 
+/* A time in seconds with 3 digits (0.21 / 1.03 / 10.3 / 105): the value in display steps and the step size in ms. */
+static uint32_t time_steps(uint32_t ms, uint32_t *step)
+{
+    *step = ms < 9995u ? 10u : (ms < 99950u ? 100u : 1000u);
+    return (ms + *step / 2u) / *step;
+}
+
+static bool has_time(const PlayerState &p)
+{
+    return p.status == PS_DONE && p.time_ms != TIME_NONE;
+}
+
+/* Displayed time of player i. Two different times never show the same number: when a faster time rounds to the
+ * same text as a slower one, the faster one shows one step lower (0.213 / 0.214 -> 0.20 / 0.21). The slowest
+ * times are fixed first, so a chain of close times steps down one by one. Equal times show the same number. */
+static void time_text(char *b, size_t n, int i, const StatePacket &st)
+{
+    uint32_t step;
+    uint32_t q = time_steps(st.players[i].time_ms, &step);
+    /* adjusted value of every player, slowest first */
+    uint32_t adj[RTD_MAX_PLAYERS];
+    uint32_t stp[RTD_MAX_PLAYERS];
+    bool done[RTD_MAX_PLAYERS] = {false, false, false, false};
+    for (int round = 0; round < RTD_MAX_PLAYERS; round++) {
+        int s = -1; /* slowest player not handled yet */
+        for (int k = 0; k < RTD_MAX_PLAYERS; k++) {
+            if (done[k] || !has_time(st.players[k])) continue;
+            if (s < 0 || st.players[k].time_ms > st.players[s].time_ms) s = k;
+        }
+        if (s < 0) break;
+        done[s] = true;
+        adj[s] = time_steps(st.players[s].time_ms, &stp[s]);
+        /* the nearest slower player already handled */
+        int up = -1;
+        for (int k = 0; k < RTD_MAX_PLAYERS; k++) {
+            if (k == s || !done[k] || st.players[k].time_ms <= st.players[s].time_ms) continue;
+            if (up < 0 || st.players[k].time_ms < st.players[up].time_ms) up = k;
+        }
+        if (up >= 0 && stp[up] == stp[s] && adj[s] >= adj[up]) {
+            adj[s] = adj[up] > 0 ? adj[up] - 1u : 0u;
+        }
+    }
+    if (done[i]) {
+        q = adj[i];
+        step = stp[i];
+    }
+    if (step == 10u) {
+        snprintf(b, n, "%u.%02u", (unsigned)(q / 100u), (unsigned)(q % 100u));
+    } else if (step == 100u) {
+        snprintf(b, n, "%u.%u", (unsigned)(q / 10u), (unsigned)(q % 10u));
+    } else {
+        snprintf(b, n, "%u", (unsigned)q);
+    }
+}
+
 static void apply_player(int i, const StatePacket &st)
 {
     const PlayerState &p = st.players[i];
@@ -326,17 +381,7 @@ static void apply_player(int i, const StatePacket &st)
     const char *unit = NULL;
     char ub[8];
     if (result_phase && p.status == PS_DONE && p.time_ms != TIME_NONE) {
-        /* seconds with 3 digits: 0.21 / 1.03 / 10.3 / 105 */
-        uint32_t ms = p.time_ms;
-        if (ms < 9995u) {
-            uint32_t cs = (ms + 5u) / 10u;
-            snprintf(b, sizeof(b), "%u.%02u", (unsigned)(cs / 100u), (unsigned)(cs % 100u));
-        } else if (ms < 99950u) {
-            uint32_t ds = (ms + 50u) / 100u;
-            snprintf(b, sizeof(b), "%u.%u", (unsigned)(ds / 10u), (unsigned)(ds % 10u));
-        } else {
-            snprintf(b, sizeof(b), "%u", (unsigned)((ms + 500u) / 1000u));
-        }
+        time_text(b, sizeof(b), i, st);
         unit = "s";
     } else if (result_phase && p.status == PS_PENALTY) {
         snprintf(b, sizeof(b), "FOUL");
