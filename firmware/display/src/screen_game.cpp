@@ -13,11 +13,12 @@ static const lv_coord_t kCountdownY = 66;
 static const int kConfetti = 40;
 
 /* Score block of a player, inside its ring (offsets from the ring centre, which is at screen y 80, inner radius 71).
- * The "PLAYER n" image is shrunk and moved up, the score digits (Bold 64) sit below it, the rank tag below the digits. */
-static const lv_coord_t kPlayerDy = -38;   /* "PLAYER n" image centre, zoom 150 (73 x 39 px) */
-static const uint16_t kPlayerZoom = 150;
-static const lv_coord_t kScoreDy = 16;     /* score digits box centre (box 75 px, digits y 73..119) */
-static const lv_coord_t kRankDy = 53;      /* rank tag centre (y 122..144) */
+ * While the scores show, the V1 "PLAYER n" image is replaced by one line of text (Bold 20) at the top of the ring,
+ * the score (Bold 64, white) sits in the middle and the leader gets an orange "1ST" tag below it. */
+static const lv_coord_t kNameDy = -40;     /* "PLAYER n" text centre */
+static const lv_coord_t kScoreDy = 8;      /* score digits centre */
+static const lv_coord_t kRankDy = 50;      /* leader tag centre */
+static const uint32_t kRingOff = 0x3A4048u; /* ring and dash of a player who did not join, while the scores show */
 static const lv_coord_t kGainDx = 72;      /* "+N" centre: right of the ring, in the gap to the next ring */
 static const int kGainRise = 30;
 static const uint32_t kGainMs = 900;
@@ -32,10 +33,8 @@ static lv_obj_t *s_time[RTD_MAX_PLAYERS];
 static lv_obj_t *s_arc[RTD_MAX_PLAYERS];
 static lv_obj_t *s_pulse, *s_flash, *s_round, *s_newrec, *s_final;
 static lv_obj_t *s_score[RTD_MAX_PLAYERS], *s_rank[RTD_MAX_PLAYERS], *s_gain[RTD_MAX_PLAYERS];
-static lv_obj_t *s_badge[RTD_MAX_PLAYERS]; /* filled box in the stick colour behind the score digits */
+static lv_obj_t *s_name[RTD_MAX_PLAYERS], *s_dash[RTD_MAX_PLAYERS];
 static lv_obj_t *s_bonus;
-static lv_coord_t s_pimg_y0[RTD_MAX_PLAYERS]; /* SquareLine position of the "PLAYER n" image */
-static bool s_pimg_small[RTD_MAX_PLAYERS];
 static bool s_bonus_on;
 static lv_obj_t *s_confetti[kConfetti];
 static bool s_confetti_on;
@@ -260,13 +259,19 @@ static void apply_center(const StatePacket &st)
         txt(ui_shakeNumber, b);
     }
     if (show_win) {
-        char b[8];
-        snprintf(b, sizeof(b), "%u", (unsigned)st.winner);
+        char b[16];
+        snprintf(b, sizeof(b), "PLAYER %u", (unsigned)st.winner);
         txt(ui_labelWinnerNum, b);
     }
 }
 
 /* ---- players ---- */
+
+/* The score block replaces the V1 "PLAYER n" image from the first announce to the final. */
+static bool scores_shown(const StatePacket &st)
+{
+    return st.phase >= PH_ANNOUNCE && st.phase <= PH_FINAL && st.round >= 1;
+}
 
 static void apply_player(int i, const StatePacket &st)
 {
@@ -283,6 +288,8 @@ static void apply_player(int i, const StatePacket &st)
         ring = th_stick(p.stick_id);
     } else if (ph == PH_JOIN) {
         ring = th_color(prompted ? TH_GREEN : TH_RED);
+    } else if (scores_shown(st)) {
+        ring = th_color(kRingOff); /* all four rings look the same while the scores show */
     }
     lv_obj_set_style_border_color(s_panel[i], ring, 0);
     if (newly && ph == PH_JOIN) {
@@ -293,6 +300,7 @@ static void apply_player(int i, const StatePacket &st)
 
     bool dim = !joined || (ph != PH_JOIN && ph != PH_IDLE && ph != PH_FINAL && !in_round);
     lv_obj_set_style_img_opa(s_pimg[i], dim ? LV_OPA_30 : LV_OPA_COVER, 0);
+    tcol(s_name[i], dim ? TH_TEXT2 : TH_TEXT);
 
     /* result text */
     char b[40];
@@ -323,21 +331,11 @@ static void apply_player(int i, const StatePacket &st)
     ring_pulse(i, win, s_prev.winpulse[i], 100);
 }
 
-/* The "PLAYER n" image is small and at the top of the ring only while the score block is shown below it. */
-static void player_small(int i, bool on)
-{
-    if (on == s_pimg_small[i]) return;
-    s_pimg_small[i] = on;
-    lv_obj_set_y(s_pimg[i], on ? (lv_coord_t)(kRingY + kPlayerDy) : s_pimg_y0[i]);
-    lv_img_set_zoom(s_pimg[i], on ? kPlayerZoom : LV_IMG_ZOOM_NONE);
-}
-
-/* Score, rank tag and gain animation of every player. Competition ranking among the joined players. */
+/* Score, leader tag and gain animation of every player. Players who did not join show a dash. */
 static void apply_scores(const StatePacket &st)
 {
-    static const char *const kRank[RTD_MAX_PLAYERS] = { "1ST", "2ND", "3RD", "4TH" };
     uint8_t ph = st.phase;
-    bool show = ph >= PH_ANNOUNCE && ph <= PH_FINAL && st.round >= 1;
+    bool show = scores_shown(st);
     bool results = ph == PH_RESULTS && (st.flags & STF_SCORES);
     uint8_t top = 0;
     for (int i = 0; i < RTD_MAX_PLAYERS; i++) {
@@ -346,37 +344,22 @@ static void apply_scores(const StatePacket &st)
 
     for (int i = 0; i < RTD_MAX_PLAYERS; i++) {
         const PlayerState &p = st.players[i];
-        bool on = show && p.stick_id != 0;
+        bool joined = p.stick_id != 0;
+        bool on = show && joined;
+        bool lead = on && top > 0 && p.score == top;
+        vis(s_pimg[i], !show);
+        vis(s_name[i], show);
+        vis(s_dash[i], show && !joined);
         vis(s_score[i], on);
-        vis(s_badge[i], on);
-        player_small(i, on);
-        vis(s_rank[i], on && top > 0);
+        vis(s_rank[i], lead); /* only the leader (or the tied leaders) gets the tag; the scores show the rest */
         if (!on) continue;
 
-        bool lead = top > 0 && p.score == top;
         char b[8];
         snprintf(b, sizeof(b), "%u", (unsigned)p.score);
         bool grew = s_prev.valid && results && p.score > s_prev.score[i];
         tfont(s_score[i], p.score > 99 ? TH_FONT40 : TH_FONT64);
         txt(s_score[i], b);
-        /* The colour of a joystick always means that player: the badge behind the digits has it. The digits are
-         * dark on white / yellow and white on blue / red, so that every score reads well. The tag marks the leader. */
-        lv_color_t sc = th_stick(p.stick_id);
-        if (lv_obj_get_style_bg_color(s_badge[i], LV_PART_MAIN).full != sc.full) {
-            lv_obj_set_style_bg_color(s_badge[i], sc, 0);
-        }
-        tcol(s_score[i], (p.stick_id == ID_STICK2 || p.stick_id == ID_STICK3) ? TH_TEXT : TH_BG);
         if (grew) score_gain(i, (unsigned)(p.score - s_prev.score[i]));
-
-        int rank = 1;
-        for (int j = 0; j < RTD_MAX_PLAYERS; j++) {
-            if (st.players[j].stick_id && st.players[j].score > p.score) rank++;
-        }
-        txt(s_rank[i], kRank[rank - 1]);
-        /* leader: dark text on an orange pill; the others: plain secondary text */
-        tcol(s_rank[i], lead ? TH_BG : TH_TEXT2);
-        lv_opa_t bg = lead ? LV_OPA_COVER : LV_OPA_TRANSP;
-        if (lv_obj_get_style_bg_opa(s_rank[i], LV_PART_MAIN) != bg) lv_obj_set_style_bg_opa(s_rank[i], bg, 0);
     }
 }
 
@@ -498,22 +481,24 @@ lv_obj_t *screen_game_init()
         lv_obj_add_flag(a, LV_OBJ_FLAG_HIDDEN);
         s_arc[i] = a;
 
-        /* the "PLAYER n" image moves up inside the ring while the score block is shown (player_small) */
-        s_pimg_y0[i] = lv_obj_get_y_aligned(s_pimg[i]);
+        /* while the scores show: "PLAYER n" text replaces the V1 image (apply_scores) */
+        char nb[12];
+        snprintf(nb, sizeof(nb), "PLAYER %d", i + 1);
+        s_name[i] = th_label(scr, TH_FONT20, TH_TEXT, nb);
+        lv_obj_align(s_name[i], LV_ALIGN_CENTER, kRingX[i], kRingY + kNameDy);
+        lv_obj_add_flag(s_name[i], LV_OBJ_FLAG_HIDDEN);
+        s_dash[i] = th_label(scr, TH_FONT40, kRingOff, "-");
+        lv_obj_align(s_dash[i], LV_ALIGN_CENTER, kRingX[i], kRingY + kScoreDy);
+        lv_obj_add_flag(s_dash[i], LV_OBJ_FLAG_HIDDEN);
 
-        s_badge[i] = th_box(scr, 104, 54);
-        lv_obj_align(s_badge[i], LV_ALIGN_CENTER, kRingX[i], kRingY + kScoreDy);
-        lv_obj_set_style_radius(s_badge[i], 12, 0);
-        lv_obj_set_style_bg_opa(s_badge[i], LV_OPA_COVER, 0);
-        lv_obj_add_flag(s_badge[i], LV_OBJ_FLAG_HIDDEN);
         s_score[i] = th_label(scr, TH_FONT64, TH_TEXT, "0");
         lv_obj_align(s_score[i], LV_ALIGN_CENTER, kRingX[i], kRingY + kScoreDy);
         lv_obj_add_flag(s_score[i], LV_OBJ_FLAG_HIDDEN);
-        s_rank[i] = th_label(scr, TH_FONT20, TH_TEXT2, "1ST");
+        s_rank[i] = th_label(scr, TH_FONT20, TH_BG, "1ST");
         lv_obj_align(s_rank[i], LV_ALIGN_CENTER, kRingX[i], kRingY + kRankDy);
         lv_obj_set_style_bg_color(s_rank[i], th_color(TH_ORANGE), 0);
-        lv_obj_set_style_bg_opa(s_rank[i], LV_OPA_TRANSP, 0);
-        lv_obj_set_style_radius(s_rank[i], 10, 0);
+        lv_obj_set_style_bg_opa(s_rank[i], LV_OPA_COVER, 0);
+        lv_obj_set_style_radius(s_rank[i], 13, 0);
         lv_obj_set_style_pad_hor(s_rank[i], 8, 0);
         lv_obj_add_flag(s_rank[i], LV_OBJ_FLAG_HIDDEN);
         s_gain[i] = th_label(scr, TH_FONT40, TH_ORANGE, "+1");
@@ -549,6 +534,13 @@ lv_obj_t *screen_game_init()
     lv_obj_t *bt = th_label(s_bonus, TH_FONT28, TH_BG, "BONUS ROUND  x2");
     lv_obj_set_width(bt, tw);
     lv_obj_add_flag(s_bonus, LV_OBJ_FLAG_HIDDEN);
+
+    /* Winner: the V1 box with "WINNER" centred in it (the V1 image had the word 6 px left of centre and "PLAYER"
+     * drawn in), same size and top edge as V1. "PLAYER n" below is one centred label, so any digit lines up. */
+    lv_img_set_src(ui_imgWinner, &ui_img_winner_box);
+    lv_obj_align(ui_imgWinner, LV_ALIGN_CENTER, 1, 62);
+    lv_obj_align(ui_labelWinnerNum, LV_ALIGN_CENTER, 0, 176);
+    lv_label_set_text(ui_labelWinnerNum, "PLAYER 1");
 
     s_final = th_label(scr, TH_FONT28, TH_TEXT, "FINAL WINNER");
     lv_obj_align(s_final, LV_ALIGN_CENTER, 0, -2);
