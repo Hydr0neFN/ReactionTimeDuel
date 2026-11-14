@@ -327,18 +327,25 @@ static void apply_player(int i, const StatePacket &st)
     /* The time replaces the score inside the ring from the press until the winner is shown (apply_scores). */
     bool result_phase = ph == PH_GO || ph == PH_SHAKE || (ph == PH_RESULTS && !scores);
     uint32_t col = TH_TEXT;
-    bool ms = false;
+    const char *unit = NULL;
+    char ub[8];
     if (result_phase && p.status == PS_DONE && p.time_ms != TIME_NONE) {
         snprintf(b, sizeof(b), "%u", (unsigned)p.time_ms);
-        ms = true;
+        unit = "ms";
     } else if (result_phase && p.status == PS_PENALTY) {
         snprintf(b, sizeof(b), "FOUL");
         col = TH_RED;
+    } else if (ph == PH_SHAKE && in_round && p.status == PS_PLAYING && st.shake_target) {
+        /* live shake count from the progress milestones, out of the target */
+        snprintf(b, sizeof(b), "%u", (unsigned)((unsigned)p.progress * st.shake_target / 100u));
+        snprintf(ub, sizeof(ub), "/ %u", (unsigned)st.shake_target);
+        unit = ub;
     }
     lv_obj_set_style_text_color(s_time[i], th_color(col), 0);
     txt(s_time[i], b);
     vis(s_time[i], b[0] != 0);
-    vis(s_unit[i], ms);
+    if (unit) txt(s_unit[i], unit);
+    vis(s_unit[i], unit != NULL);
 
     /* shake progress arc */
     bool arc_on = ph == PH_SHAKE && in_round && p.status == PS_PLAYING;
@@ -371,7 +378,8 @@ static void apply_scores(const StatePacket &st)
         bool on = show && joined;
         /* while the winner is shown only the winner is highlighted: no leader tag */
         bool lead = on && !win_show && top > 0 && p.score == top;
-        bool timed = !lv_obj_has_flag(s_time[i], LV_OBJ_FLAG_HIDDEN); /* the time holds the score place */
+        /* From GO until the winner shows the score is cleared: the ring is empty until the time or count comes. */
+        bool timed = ph == PH_GO || ph == PH_SHAKE || (ph == PH_RESULTS && !(st.flags & STF_SCORES));
         vis(s_pimg[i], !show);
         vis(s_name[i], show);
         vis(s_dash[i], show && !joined);
