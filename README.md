@@ -478,6 +478,11 @@ The firmware builds are checked by the compiler only. Touch, OTA, LED and audio 
 
 ## Credits and License
 
+Made with love by:
+
+- **Dogari A.** ([@ihoneypot](https://github.com/ihoneypot)): suitcase build, the PCBs and wiring inside the case, the V1 display code, and merging the ideas into one design.
+- **Juan Y.** ([@Hydr0neFN](https://github.com/Hydr0neFN)): firmware, protocol, game logic and the 2.0 rework.
+
 MIT License
 
 The Hanze logo is property of Hanze University of Applied Sciences. The file comes from Wikimedia Commons under CC BY-SA 2.5 and is used for the open-day showcase.

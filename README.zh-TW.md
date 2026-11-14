@@ -488,6 +488,11 @@ T23 測服務選單的封包。T24 到 T27 測 PLACES 計分、加分局、靠�
 
 ## 致謝與授權
 
+作者：
+
+- **Dogari A.**（[@ihoneypot](https://github.com/ihoneypot)）：做手提箱外殼、箱內的 PCB 和配線、V1 的顯示器程式，也負責把大家的點子整合成一套設計。
+- **Juan Y.**（[@Hydr0neFN](https://github.com/Hydr0neFN)）：韌體、通訊協定、遊戲邏輯，以及 2.0 改版。
+
 MIT License
 
 Hanze 標誌的版權屬於 Hanze University of Applied Sciences。檔案取自 Wikimedia Commons，授權為 CC BY-SA 2.5，這裡只用在開放日展示。
