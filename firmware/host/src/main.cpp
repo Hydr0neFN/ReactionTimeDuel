@@ -112,30 +112,48 @@ static void sniffDisplay(const RxFrame& frame) {
   }
 }
 
-/* The display would send this packet; the BOOT button plays its role locally. */
+/* The display would send this packet; the BOOT button plays its role locally.
+ * Source ID_HOST, so /api/debug last_exit_src tells a local exit from a display exit. */
 static void sendLocalAction(uint8_t action, uint8_t argument) {
   GamePacket pkt;
-  buildPacket(&pkt, ID_HOST, ID_DISPLAY, CMD_ACTION,
+  buildPacket(&pkt, ID_HOST, ID_HOST, CMD_ACTION,
               (uint16_t)(((uint16_t)action << 8) | argument));
   game.onPacket((const uint8_t*)&pkt, PACKET_SIZE, micros());
 }
 
-/* BOOT (GPIO0) held 3 s toggles maintenance mode (DESIGN.md 9.1). */
+/* BOOT (GPIO0) held 3 s toggles maintenance mode (DESIGN.md 9.1).
+ * GPIO0 is also wired to the USB-serial auto-reset circuit: a serial tool that
+ * holds DTR can pull it LOW for a long time. The button is armed only after it
+ * read HIGH for 1 s, and a press counts only while the pin stays LOW. */
 static void handleBootButton() {
   static bool wasDown = false;
   static bool handled = false;
+  static bool armed = false;
   static uint32_t downSince = 0;
+  static uint32_t upSince = 0;
 
   bool down = digitalRead(PIN_BOOT) == LOW;
   uint32_t now = millis();
+
+  if (!armed) {
+    if (down) {
+      upSince = 0;
+    } else if (upSince == 0) {
+      upSince = now | 1u;
+    } else if ((uint32_t)(now - upSince) >= 1000) {
+      armed = true;
+    }
+    wasDown = down;
+    return;
+  }
 
   if (down) {
     if (!wasDown) downSince = now;
     if (!handled && (uint32_t)(now - downSince) >= 3000) {
       handled = true;
-      if (game.phase() == PH_MAINT) {
-        sendLocalAction(ACT_MAINTENANCE, 0);
-      } else if (game.phase() == PH_IDLE) {
+      /* Enter only: update mode is left on the display or the web page, so a
+       * GPIO0 held LOW by the serial port can never end an update. */
+      if (game.phase() == PH_IDLE) {
         sendLocalAction(ACT_MAINTENANCE, 1);
       }
     }

@@ -90,7 +90,7 @@ Each physical stick has a fixed ID and a fixed color. The ID is written to EEPRO
 | GPIO26 | I2S BCLK (bit clock) |
 | GPIO27 | I2S LRC (word select) |
 | GPIO33 | Amplifier GAIN, driven LOW for maximum gain |
-| GPIO0 | BOOT button, held 3 s toggles maintenance mode |
+| GPIO0 | BOOT button, held 3 s enters maintenance mode |
 
 Volume is set in software by the MP3 decoder gain (DESIGN 8).
 
@@ -281,7 +281,7 @@ After the first USB flash, every device updates over the air with the host as th
 3. Join the Wi-Fi access point `RTD-Host`.
 4. Open `http://192.168.4.1` in a browser.
 
-The AP password is `RTD_AP_PASS`. The repository holds only a placeholder: put `#define RTD_AP_PASS "your-password"` (8 characters or more) in `shared/rtd_core/src/RtdSecrets.h`, which git ignores, and build all devices with it. ESP-NOW keeps running on channel 6, so the sticks and the display stay reachable. UPDATE JOYSTICKS aborts a running game and then enters maintenance mode. To leave, press "Exit update mode" on the page, press LEAVE UPDATE MODE on the display, or hold BOOT for 3 s. The host reboots.
+The AP password is `RTD_AP_PASS`. The repository holds only a placeholder: put `#define RTD_AP_PASS "your-password"` (8 characters or more) in `shared/rtd_core/src/RtdSecrets.h`, which git ignores, and build all devices with it. ESP-NOW keeps running on channel 6, so the sticks and the display stay reachable. UPDATE JOYSTICKS aborts a running game and then enters maintenance mode. To leave, press "Exit update mode" on the page or press LEAVE UPDATE MODE on the display. The host reboots. BOOT does not leave update mode: GPIO0 also sits on the USB-serial reset circuit, and a serial tool can hold it LOW.
 
 ### Joysticks (through the Host)
 

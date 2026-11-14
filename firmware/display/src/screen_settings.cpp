@@ -131,19 +131,36 @@ static void dropdown_cb(lv_event_t *e)
 
 /* ---- actions and the confirmation box ---- */
 
+/* Only one box at a time: a second box would share the pending action of the first. */
+static lv_obj_t *s_box;
+
+/* The host state can change while the box is open: send only what still makes sense. */
+static bool still_valid(uint8_t act, uint8_t arg)
+{
+    const StatePacket &st = ui_link().state();
+    if (act != ACT_MAINTENANCE) return true;
+    if (arg == 0) return st.phase == PH_MAINT && st.ota_state != OTA_STICKS;
+    return st.phase == PH_IDLE;
+}
+
 static void confirm_cb(lv_event_t *e)
 {
     lv_obj_t *box = lv_event_get_current_target(e);
-    if (lv_msgbox_get_active_btn(box) == 0) ui_link().sendAction(s_pending_act, s_pending_arg);
+    if (lv_msgbox_get_active_btn(box) == 0 && still_valid(s_pending_act, s_pending_arg)) {
+        ui_link().sendAction(s_pending_act, s_pending_arg);
+    }
+    s_box = NULL;
     lv_msgbox_close(box);
 }
 
 void ui_confirm(uint8_t act, uint8_t arg, const char *text)
 {
     static const char *btns[] = { "YES", "NO", "" };
+    if (s_box) return;
     s_pending_act = act;
     s_pending_arg = arg;
     lv_obj_t *m = lv_msgbox_create(NULL, "CONFIRM", text, btns, false);
+    s_box = m;
     lv_obj_set_size(m, 460, 220);
     lv_obj_center(m);
     lv_obj_add_event_cb(m, confirm_cb, LV_EVENT_VALUE_CHANGED, NULL);

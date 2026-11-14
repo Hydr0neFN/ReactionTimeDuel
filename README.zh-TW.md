@@ -90,7 +90,7 @@ PH_IDLE --(BOOT 3 s or display)--> PH_MAINT --(reboot)--> PH_IDLE
 | GPIO26 | I2S BCLK（位元時脈） |
 | GPIO27 | I2S LRC（左右聲道時脈） |
 | GPIO33 | 擴大機 GAIN，拉到 LOW 取最大增益 |
-| GPIO0 | BOOT 鍵，按住 3 秒切換維護模式 |
+| GPIO0 | BOOT 鍵，按住 3 秒進入維護模式 |
 
 音量是軟體調的，改的是 MP3 解碼器的增益（DESIGN 8）。
 
@@ -281,7 +281,7 @@ START NOW 要有 `STF_CAN_START` 才能按。UPDATE JOYSTICKS 要有 `STF_UPDATE
 3. 用手機或筆電連上 Wi-Fi 基地台 `RTD-Host`。
 4. 用瀏覽器打開 `http://192.168.4.1`。
 
-基地台密碼是 `RTD_AP_PASS`。repo 裡只放了範例值；自己的密碼寫在 `shared/rtd_core/src/RtdSecrets.h`（git 會忽略這個檔），內容是 `#define RTD_AP_PASS "your-password"`，至少 8 個字元，三種裝置都要用同一個密碼來 build。維護模式下 ESP-NOW 照樣在 channel 6 運作，所以搖桿和顯示器都還連得到。比賽進行中按 UPDATE JOYSTICKS 的話，主機會先中止比賽再進維護模式。要離開維護模式，可以按網頁上的 "Exit update mode"、在顯示器上按 LEAVE UPDATE MODE，或按住 BOOT 3 秒；主機會重新開機。
+基地台密碼是 `RTD_AP_PASS`。repo 裡只放了範例值；自己的密碼寫在 `shared/rtd_core/src/RtdSecrets.h`（git 會忽略這個檔），內容是 `#define RTD_AP_PASS "your-password"`，至少 8 個字元，三種裝置都要用同一個密碼來 build。維護模式下 ESP-NOW 照樣在 channel 6 運作，所以搖桿和顯示器都還連得到。比賽進行中按 UPDATE JOYSTICKS 的話，主機會先中止比賽再進維護模式。要離開維護模式，可以按網頁上的 "Exit update mode"，或在顯示器上按 LEAVE UPDATE MODE；主機會重新開機。BOOT 鍵只能進維護模式、不能離開，因為 GPIO0 也接在 USB 序列埠的重置電路上，序列埠工具可能把它一直拉低。
 
 ### 搖桿（經由主機）
 

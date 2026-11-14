@@ -341,7 +341,7 @@ Goal: after the first USB flash of 2.0, every device is updated over the air, wi
 
 ### 9.1 Maintenance mode (`PH_MAINT`)
 
-Entered by `ACT_MAINTENANCE` 1, by `ACT_OTA_STICKS`, or by holding the host BOOT button (GPIO0) for 3 s. Only from `PH_IDLE` (the display action first aborts a running game). The host calls `maintEnter()`: Wi-Fi mode AP+STA, soft AP `RTD_AP_SSID` / `RTD_AP_PASS` on channel 6, HTTP server on port 80. ESP-NOW keeps running. Exit (`ACT_MAINTENANCE` 0, the web page, or BOOT held 3 s again): `maintExit()` = reboot. The AP is off in normal mode, so game timing is not disturbed.
+Entered by `ACT_MAINTENANCE` 1, by `ACT_OTA_STICKS`, or by holding the host BOOT button (GPIO0) for 3 s. Only from `PH_IDLE` (the display action first aborts a running game). The host calls `maintEnter()`: Wi-Fi mode AP+STA, soft AP `RTD_AP_SSID` / `RTD_AP_PASS` on channel 6, HTTP server on port 80. ESP-NOW keeps running. Exit (`ACT_MAINTENANCE` 0 from the display, or the web page): `maintExit()` = reboot. BOOT only enters: GPIO0 is also on the USB-serial auto-reset circuit, and a serial tool that holds DTR keeps it LOW. The BOOT button is armed after GPIO0 reads HIGH for 1 s. Local actions use source `ID_HOST`, so `/api/debug` `last_exit_src` 16 means the display sent the exit. The AP is off in normal mode, so game timing is not disturbed.
 
 ### 9.2 Image marker
 

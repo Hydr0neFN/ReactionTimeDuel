@@ -515,7 +515,7 @@ void Maint::update() {
 
 void Maint::sendAction(uint8_t action, uint8_t argument) {
   GamePacket pkt;
-  buildPacket(&pkt, ID_HOST, ID_DISPLAY, CMD_ACTION,
+  buildPacket(&pkt, ID_HOST, ID_HOST, CMD_ACTION,
               (uint16_t)(((uint16_t)action << 8) | argument));
   game_.onPacket((const uint8_t*)&pkt, PACKET_SIZE, micros());
 }
