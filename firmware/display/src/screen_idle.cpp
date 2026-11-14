@@ -149,9 +149,15 @@ lv_obj_t *screen_idle_init()
     lv_qrcode_update(qr, kRepoUrl, sizeof(kRepoUrl) - 1);
     lv_obj_set_style_border_color(qr, lv_color_white(), 0);
     lv_obj_set_style_border_width(qr, 4, 0);
-    lv_obj_align(qr, LV_ALIGN_BOTTOM_LEFT, 16, -14);
-    lv_obj_t *qt = th_label(s_scr, TH_FONT20, TH_TEXT2, "Project Page");
-    lv_obj_align_to(qt, qr, LV_ALIGN_OUT_RIGHT_BOTTOM, 12, 0);
+    lv_obj_align(qr, LV_ALIGN_BOTTOM_LEFT, 36, -14);
+    /* Caption on the left side of the QR code, turned 90 deg so it reads bottom to top. */
+    lv_obj_t *qt = th_label(s_scr, &lv_font_montserrat_16, TH_TEXT2, "Project Page");
+    lv_obj_update_layout(qt);
+    lv_coord_t qw = lv_obj_get_width(qt), qh = lv_obj_get_height(qt);
+    lv_obj_set_style_transform_pivot_x(qt, qw / 2, 0);
+    lv_obj_set_style_transform_pivot_y(qt, qh / 2, 0);
+    lv_obj_set_style_transform_angle(qt, 2700, 0);
+    lv_obj_align_to(qt, qr, LV_ALIGN_OUT_LEFT_MID, (lv_coord_t)((qw - qh) / 2 - 2), 0);
 
     lv_obj_t *credit = th_label(s_scr, &lv_font_montserrat_16, TH_TEXT2,
                                 "Made with love by Dogari A. and Juan Y.");
