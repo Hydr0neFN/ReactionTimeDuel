@@ -725,12 +725,15 @@ static void testT8() {
     if (slot != 0) CHECK(st.players[slot - 1].status == PS_PENALTY);
     CHECK(sim.runUntilPhase(PH_FINAL, 20000));
     {
-      /* final: all rings are lit in the winner's stick colour (stick 1 white) */
+      /* final: only the winner's ring is lit, in the winner's stick colour (stick 1 white) */
+      static const uint8_t kPlayerToRing[4] = {4, 3, 1, 0};
       const LedView& lv = sim.host().leds();
-      CHECK(sim.host().state().winner == slotOf(sim.host().state(), 1));
+      uint8_t w = sim.host().state().winner;
+      CHECK(w == slotOf(sim.host().state(), 1));
       CHECK(lv.neoMode == NEO_STATUS);
+      uint8_t wr = kPlayerToRing[(w - 1) & 0x03];
       for (int r = 0; r < 5; r++) {
-        CHECK(lv.ringColor[r] == RTD_RGB_WHITE);
+        CHECK(lv.ringColor[r] == (r == wr ? RTD_RGB_WHITE : RTD_RGB_OFF));
         CHECK(!lv.ringBlink[r]);
       }
     }

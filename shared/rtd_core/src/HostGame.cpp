@@ -303,14 +303,16 @@ void HostGame::ringForSlot(uint8_t slot, uint32_t color, bool blink) {
   leds_.ringBlink[ring] = blink;
 }
 
-/* Winner shown (round scores or final): all rings are lit in the colour of the winner's stick, so the LEDs
- * match the display. */
+/* Winner shown (round scores or final): only the winner's ring is lit, in the colour of the winner's stick,
+ * so the LEDs match the display. */
 void HostGame::showWinnerRings(uint8_t winner) {
-  uint32_t color = stickColor(slotStick_[(winner - 1) & 0x03]);
+  /* only the winner's ring is lit, in the winner's stick colour */
+  uint8_t slot = (uint8_t)((winner - 1) & 0x03);
   for (uint8_t r = 0; r < 5; r++) {
-    leds_.ringColor[r] = color;
+    leds_.ringColor[r] = RTD_RGB_OFF;
     leds_.ringBlink[r] = false;
   }
+  ringForSlot(slot, stickColor(slotStick_[slot]), false);
   leds_.neoMode = NEO_STATUS;
 }
 
