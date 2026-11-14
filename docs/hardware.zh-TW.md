@@ -8,7 +8,7 @@
 
 - **5 個 NeoPixel 燈環**（每個 12 顆 LED，共 60 顆）— 玩家狀態與遊戲動畫
 - **89 顆 LED 的 WS2812B 氛圍燈條** — 輪播 6 種動畫（rainbow、sparkle、meteor、color chase、breathing、fire）
-- **I2S MP3 音訊** — SPIFFS 上存有 24 個音效檔案，用於語音播報、倒數及音效
+- **I2S MP3 音訊** — SPIFFS 裡放了 24 個音效檔，拿來做語音播報、倒數和音效
 - **PWM 音量控制** — 用擴大機的 GAIN 腳位調硬體增益
 
 ### 主控端腳位
@@ -19,7 +19,7 @@
 | GPIO16 | WS2812B 氛圍燈條資料（89 顆 LED） |
 | GPIO25 | I2S DOUT（音訊資料） |
 | GPIO26 | I2S BCLK（位元時脈） |
-| GPIO27 | I2S LRC（字元選擇 word select） |
+| GPIO27 | I2S LRC（左右聲道選擇，word select） |
 | GPIO33 | 擴大機 GAIN（PWM 音量控制） |
 
 ## 搖桿控制器（ESP8266）
