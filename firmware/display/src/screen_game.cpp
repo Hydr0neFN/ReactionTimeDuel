@@ -18,6 +18,8 @@ static const int kConfetti = 40;
 static const lv_coord_t kNameDy = -40;     /* "PLAYER n" text centre */
 static const lv_coord_t kScoreDy = 8;      /* score digits centre */
 static const lv_coord_t kRankDy = 50;      /* leader tag centre */
+static const lv_coord_t kTimeDy = 6;       /* reaction time centre (replaces the score until the winner shows) */
+static const lv_coord_t kUnitDy = 42;      /* "ms" below the time */
 static const uint32_t kRingOff = 0x3A4048u; /* ring and dash of a player who did not join, while the scores show */
 static const lv_coord_t kGainDx = 72;      /* "+N" centre: right of the ring, in the gap to the next ring */
 static const int kGainRise = 30;
@@ -30,6 +32,7 @@ static const lv_coord_t kBonusPad = 10;
 static lv_obj_t *s_panel[RTD_MAX_PLAYERS];
 static lv_obj_t *s_pimg[RTD_MAX_PLAYERS];
 static lv_obj_t *s_time[RTD_MAX_PLAYERS];
+static lv_obj_t *s_unit[RTD_MAX_PLAYERS];
 static lv_obj_t *s_arc[RTD_MAX_PLAYERS];
 static lv_obj_t *s_pulse, *s_flash, *s_round, *s_newrec, *s_final;
 static lv_obj_t *s_score[RTD_MAX_PLAYERS], *s_rank[RTD_MAX_PLAYERS], *s_gain[RTD_MAX_PLAYERS];
@@ -321,18 +324,21 @@ static void apply_player(int i, const StatePacket &st)
     char b[40];
     b[0] = 0;
     bool scores = (st.flags & STF_SCORES) != 0;
-    bool result_phase = ph == PH_GO || ph == PH_SHAKE || ph == PH_RESULTS;
+    /* The time replaces the score inside the ring from the press until the winner is shown (apply_scores). */
+    bool result_phase = ph == PH_GO || ph == PH_SHAKE || (ph == PH_RESULTS && !scores);
     uint32_t col = TH_TEXT;
+    bool ms = false;
     if (result_phase && p.status == PS_DONE && p.time_ms != TIME_NONE) {
-        snprintf(b, sizeof(b), "%u ms", (unsigned)p.time_ms);
+        snprintf(b, sizeof(b), "%u", (unsigned)p.time_ms);
+        ms = true;
     } else if (result_phase && p.status == PS_PENALTY) {
         snprintf(b, sizeof(b), "FOUL");
         col = TH_RED;
     }
-    if (loser) col = TH_TEXT2;
     lv_obj_set_style_text_color(s_time[i], th_color(col), 0);
     txt(s_time[i], b);
     vis(s_time[i], b[0] != 0);
+    vis(s_unit[i], ms);
 
     /* shake progress arc */
     bool arc_on = ph == PH_SHAKE && in_round && p.status == PS_PLAYING;
@@ -365,11 +371,12 @@ static void apply_scores(const StatePacket &st)
         bool on = show && joined;
         /* while the winner is shown only the winner is highlighted: no leader tag */
         bool lead = on && !win_show && top > 0 && p.score == top;
+        bool timed = !lv_obj_has_flag(s_time[i], LV_OBJ_FLAG_HIDDEN); /* the time holds the score place */
         vis(s_pimg[i], !show);
         vis(s_name[i], show);
         vis(s_dash[i], show && !joined);
-        vis(s_score[i], on);
-        vis(s_rank[i], lead); /* only the leader (or the tied leaders) gets the tag; the scores show the rest */
+        vis(s_score[i], on && !timed);
+        vis(s_rank[i], lead && !timed); /* only the leader (or the tied leaders) gets the tag */
         if (!on) continue;
 
         char b[8];
@@ -481,14 +488,14 @@ lv_obj_t *screen_game_init()
         s_panel[i] = panels[i];
         s_pimg[i] = pimgs[i];
         s_time[i] = times[i];
-        lv_obj_set_style_text_font(s_time[i], TH_FONT28, 0);
+        /* The time sits inside the ring in place of the score (below the ring it crossed the GO circle):
+         * the number in Bold 40, "ms" in Bold 20 below it. */
+        lv_obj_set_style_text_font(s_time[i], TH_FONT40, 0);
         lv_obj_set_style_text_align(s_time[i], LV_TEXT_ALIGN_CENTER, 0);
-        /* The time of rings 2 and 3 crosses the edge of the centre circle while GO still shows:
-         * a background chip in the screen colour keeps the text readable over the circle. */
-        lv_obj_set_style_bg_color(s_time[i], th_color(TH_BG), 0);
-        lv_obj_set_style_bg_opa(s_time[i], LV_OPA_COVER, 0);
-        lv_obj_set_style_pad_hor(s_time[i], 8, 0);
-        lv_obj_set_style_radius(s_time[i], 8, 0);
+        lv_obj_align(s_time[i], LV_ALIGN_CENTER, kRingX[i], kRingY + kTimeDy);
+        s_unit[i] = th_label(scr, TH_FONT20, TH_TEXT2, "ms");
+        lv_obj_align(s_unit[i], LV_ALIGN_CENTER, kRingX[i], kRingY + kUnitDy);
+        lv_obj_add_flag(s_unit[i], LV_OBJ_FLAG_HIDDEN);
 
         lv_obj_t *a = lv_arc_create(scr);
         lv_obj_set_size(a, 166, 166);
