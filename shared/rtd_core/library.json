@@ -1,0 +1,11 @@
+{
+  "name": "rtd_core",
+  "version": "4.0.0",
+  "description": "Reaction Time Duel shared wire protocol and game logic (host, joystick, display).",
+  "keywords": ["reaction", "game", "esp-now"],
+  "frameworks": "*",
+  "platforms": "*",
+  "build": {
+    "srcDir": "src"
+  }
+}

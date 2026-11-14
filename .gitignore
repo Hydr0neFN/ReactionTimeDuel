@@ -1,1 +1,15 @@
+.pio/
+.vscode/
+.handoffs/
+_trash/
+managed_components/
+sdkconfig.esp32s3
+sdkconfig.*.old
+dependencies.lock
+__pycache__/
 ReactionTimerHost/nul
+.claude/
+.pio_native/
+logs/
+RtdSecrets.h
+dist/

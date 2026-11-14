@@ -1,0 +1,17 @@
+{
+  "folders": [
+    { "name": "host (ESP32)", "path": "firmware/host" },
+    { "name": "joystick (ESP8266)", "path": "firmware/joystick" },
+    { "name": "display (ESP32-S3)", "path": "firmware/display" },
+    { "name": "repo", "path": "." }
+  ],
+  "settings": {
+    "files.exclude": {
+      "**/.pio": true,
+      "_trash": true
+    }
+  },
+  "extensions": {
+    "recommendations": ["platformio.platformio-ide"]
+  }
+}
