@@ -442,7 +442,7 @@ static uint32_t diagValue(uint8_t key) {
     case DIAG_BTN_DROP:     return diagBtnDrop;
     case DIAG_STICK_STATE:  return logic->state();
     case DIAG_MPU_OK:       return mpuOk ? 1 : 0;
-    case DIAG_SHAKE_COUNT:    return logic->shakeCount();
+    case DIAG_SHAKE_COUNT:    return logic->shakeFinished();   // shakeCount() is cleared in goIdle
     case DIAG_SHAKE_PEAK_MAX: return logic->shakeMaxPeak() * 10UL / SHAKE_LSB_PER_G;   // 0.1 g
     case DIAG_SHAKE_PEAK_MIN: return logic->shakeMinPeak() * 10UL / SHAKE_LSB_PER_G;
     case DIAG_SHAKE_PEAK_AVG: return logic->shakeAvgPeak() * 10UL / SHAKE_LSB_PER_G;
