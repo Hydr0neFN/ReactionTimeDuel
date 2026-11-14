@@ -19,7 +19,7 @@ static const lv_coord_t kNameDy = -40;     /* "PLAYER n" text centre */
 static const lv_coord_t kScoreDy = 8;      /* score digits centre */
 static const lv_coord_t kRankDy = 50;      /* leader tag centre */
 static const lv_coord_t kTimeDy = 6;       /* reaction time centre (replaces the score until the winner shows) */
-static const lv_coord_t kUnitDy = 42;      /* "ms" below the time */
+static const lv_coord_t kUnitDy = 42;      /* unit ("s") below the time */
 static const uint32_t kRingOff = 0x3A4048u; /* ring and dash of a player who did not join, while the scores show */
 static const lv_coord_t kGainDx = 72;      /* "+N" centre: right of the ring, in the gap to the next ring */
 static const int kGainRise = 30;
@@ -38,7 +38,7 @@ static lv_obj_t *s_pulse, *s_flash, *s_round, *s_newrec, *s_final;
 static lv_obj_t *s_score[RTD_MAX_PLAYERS], *s_rank[RTD_MAX_PLAYERS], *s_gain[RTD_MAX_PLAYERS];
 static lv_obj_t *s_name[RTD_MAX_PLAYERS], *s_dash[RTD_MAX_PLAYERS];
 static lv_obj_t *s_bonus;
-static lv_obj_t *s_winbox; /* frame of the WINNER box, in the colour of the winner's stick */
+static lv_obj_t *s_winbox; /* green frame of the WINNER box (V1) */
 static bool s_bonus_on;
 static lv_obj_t *s_confetti[kConfetti];
 static bool s_confetti_on;
@@ -273,10 +273,6 @@ static void apply_center(const StatePacket &st)
         char b[16];
         snprintf(b, sizeof(b), "PLAYER %u", (unsigned)st.winner);
         txt(ui_labelWinnerNum, b);
-        lv_color_t wc = th_stick(st.players[st.winner - 1].stick_id);
-        if (lv_obj_get_style_border_color(s_winbox, LV_PART_MAIN).full != wc.full) {
-            lv_obj_set_style_border_color(s_winbox, wc, 0);
-        }
     }
 }
 
@@ -330,8 +326,18 @@ static void apply_player(int i, const StatePacket &st)
     const char *unit = NULL;
     char ub[8];
     if (result_phase && p.status == PS_DONE && p.time_ms != TIME_NONE) {
-        snprintf(b, sizeof(b), "%u", (unsigned)p.time_ms);
-        unit = "ms";
+        /* seconds with 3 digits: 0.21 / 1.03 / 10.3 / 105 */
+        uint32_t ms = p.time_ms;
+        if (ms < 9995u) {
+            uint32_t cs = (ms + 5u) / 10u;
+            snprintf(b, sizeof(b), "%u.%02u", (unsigned)(cs / 100u), (unsigned)(cs % 100u));
+        } else if (ms < 99950u) {
+            uint32_t ds = (ms + 50u) / 100u;
+            snprintf(b, sizeof(b), "%u.%u", (unsigned)(ds / 10u), (unsigned)(ds % 10u));
+        } else {
+            snprintf(b, sizeof(b), "%u", (unsigned)((ms + 500u) / 1000u));
+        }
+        unit = "s";
     } else if (result_phase && p.status == PS_PENALTY) {
         snprintf(b, sizeof(b), "FOUL");
         col = TH_RED;
@@ -497,11 +503,11 @@ lv_obj_t *screen_game_init()
         s_pimg[i] = pimgs[i];
         s_time[i] = times[i];
         /* The time sits inside the ring in place of the score (below the ring it crossed the GO circle):
-         * the number in Bold 40, "ms" in Bold 20 below it. */
+         * the number in Bold 40 (seconds, 3 digits), "s" in Bold 20 below it. */
         lv_obj_set_style_text_font(s_time[i], TH_FONT40, 0);
         lv_obj_set_style_text_align(s_time[i], LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_align(s_time[i], LV_ALIGN_CENTER, kRingX[i], kRingY + kTimeDy);
-        s_unit[i] = th_label(scr, TH_FONT20, TH_TEXT2, "ms");
+        s_unit[i] = th_label(scr, TH_FONT20, TH_TEXT2, "s");
         lv_obj_align(s_unit[i], LV_ALIGN_CENTER, kRingX[i], kRingY + kUnitDy);
         lv_obj_add_flag(s_unit[i], LV_OBJ_FLAG_HIDDEN);
 
@@ -577,7 +583,7 @@ lv_obj_t *screen_game_init()
 
     /* Winner: the V1 box with "WINNER" centred in it (the V1 image had the word 6 px left of centre and "PLAYER"
      * drawn in), same size and top edge as V1. The image holds only the word; the frame (V1 geometry: 423x116,
-     * 6 px, inside the 431x119 image) is drawn here in the colour of the winner's stick (apply_center).
+     * 6 px, inside the 431x119 image) is drawn here in the V1 green.
      * "PLAYER n" below is one centred label, so any digit lines up. */
     lv_img_set_src(ui_imgWinner, &ui_img_winner_text);
     lv_obj_align(ui_imgWinner, LV_ALIGN_CENTER, 1, 62);
