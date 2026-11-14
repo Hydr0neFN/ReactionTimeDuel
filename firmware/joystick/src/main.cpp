@@ -39,6 +39,8 @@
 #define MPU_ADDR          0x68
 #define MPU_REG_PWR_MGMT1 0x6B
 #define MPU_REG_ACCEL_XH  0x3B
+#define MPU_REG_CONFIG    0x1A
+#define MPU_REG_ACCEL_CFG 0x1C
 
 // =============================================================================
 // ID STORAGE (DESIGN.md J5: EEPROM record -> MAC table -> none)
@@ -339,6 +341,8 @@ static void mpuWriteReg(uint8_t reg, uint8_t val) {
 static void mpuInit() {
   mpuWriteReg(MPU_REG_PWR_MGMT1, 0x00);   // wake up
   delay(10);
+  mpuWriteReg(MPU_REG_ACCEL_CFG, 0x10);   // +-8 g, 4096 LSB/g (SHAKE_LSB_PER_G)
+  mpuWriteReg(MPU_REG_CONFIG, 0x03);      // DLPF 44 Hz: rejects motor buzz, passes shakes (< 15 Hz)
 }
 
 static bool mpuProbe() {
@@ -418,7 +422,8 @@ static const uint8_t DIAG_STICK_KEYS[] = {
   DIAG_FW_VERSION, DIAG_MPU_OK, DIAG_STICK_STATE,   // the keys of the STICKS page come first
   DIAG_RESET_REASON, DIAG_UPTIME_MIN, DIAG_HEAP_KB,
   DIAG_RX_DROP, DIAG_TX_FAIL, DIAG_BAD_FRAME, DIAG_LOOP_MAX_MS, DIAG_LINK_GAP_DS,
-  DIAG_BTN_EDGES, DIAG_BTN_DROP
+  DIAG_BTN_EDGES, DIAG_BTN_DROP,
+  DIAG_SHAKE_COUNT, DIAG_SHAKE_PEAK_MAX, DIAG_SHAKE_PEAK_MIN, DIAG_SHAKE_PEAK_AVG, DIAG_SHAKE_SOFT_MAX
 };
 #define DIAG_STICK_KEY_COUNT  (sizeof(DIAG_STICK_KEYS) / sizeof(DIAG_STICK_KEYS[0]))
 
@@ -437,6 +442,11 @@ static uint32_t diagValue(uint8_t key) {
     case DIAG_BTN_DROP:     return diagBtnDrop;
     case DIAG_STICK_STATE:  return logic->state();
     case DIAG_MPU_OK:       return mpuOk ? 1 : 0;
+    case DIAG_SHAKE_COUNT:    return logic->shakeCount();
+    case DIAG_SHAKE_PEAK_MAX: return logic->shakeMaxPeak() * 10UL / SHAKE_LSB_PER_G;   // 0.1 g
+    case DIAG_SHAKE_PEAK_MIN: return logic->shakeMinPeak() * 10UL / SHAKE_LSB_PER_G;
+    case DIAG_SHAKE_PEAK_AVG: return logic->shakeAvgPeak() * 10UL / SHAKE_LSB_PER_G;
+    case DIAG_SHAKE_SOFT_MAX: return logic->shakeSoftMax() * 10UL / SHAKE_LSB_PER_G;
     default:                return 0;
   }
 }

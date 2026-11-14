@@ -20,10 +20,10 @@ Reaction Time Duel 2.0 is a competitive multiplayer reaction-time game built wit
 ## Game Modes
 
 ### Reaction Mode
-NeoPixel rings cycle random colors. When the LEDs freeze to yellow, press your button. The fastest reaction time wins the round. Press too early and you get a penalty.
+Every player ring shows its player colour. The centre ring counts down in 4 stages (12, 9, 6, 3 lit LEDs) at uneven random intervals and is empty exactly at GO, so it shows that GO is coming but not when. When the rings turn yellow, press your button. The fastest reaction time wins the round. Press too early and you get a penalty.
 
 ### Shake Mode
-After a 3-2-1 countdown, shake your joystick to reach the target count (10, 15 or 20 shakes). A center ring countdown shows the remaining time. The first to finish wins.
+After a 3-2-1 countdown, shake your joystick in any direction to reach the target count (10, 15 or 20 shakes; one shake is one back-and-forth). A center ring countdown shows the remaining time. The first to finish wins.
 
 In Mixed mode (the default) the host alternates Reaction and Shake, starting with Reaction. Reaction only and Shake only are also available in the settings.
 
@@ -51,7 +51,7 @@ PH_IDLE --(BOOT 3 s or display)--> PH_MAINT --(reboot)--> PH_IDLE
 1. **Idle.** The host waits for a player. It plays "press to join" on entry and then every 45 s, only when the voice guide is on.
 2. **Join.** The prompted slot is always the lowest free slot. Any stick without a slot that presses claims the prompted slot at once, so two presses in the same millisecond get two slots. Each prompt lasts `CFG_JOIN_TIME` seconds. With 2 or more players the game starts; 4 players start at once; a single player goes back to idle after 3 timeouts.
 3. **Announce.** The host plays the mode, the shake target and, the first time in a game, the long instructions when the voice guide is on.
-4. **Countdown.** Shake rounds count 3-2-1 with audio, ring flash and a vibration tick. Reaction rounds skip the countdown and wait a random 3, 5 or 7 s.
+4. **Countdown.** Shake rounds count 3-2-1 with audio, ring flash and a vibration tick. Reaction rounds skip the countdown and wait a random 3, 5 or 7 s; the centre ring counts down in 4 stages of random length and empties at GO.
 5. **Play.** Reaction: the rings freeze to yellow at GO. Shake: race to the target count. A stick reports progress milestones, so the rings show live progress.
 6. **Results.** The centre ring counts down the hard limit of the round: 3000 ms after GO in a reaction round, 15000 ms in a shake round. A player with no result at the limit gets a penalty. Times show first, then the winner and the scores.
 7. **Final.** After the last round the host announces the final winner.
@@ -151,7 +151,7 @@ ReactionTimeDuel/
   firmware/host/           ESP32 Arduino project (game, LEDs, audio, OTA)
   firmware/joystick/       ESP8266 Arduino project (button, motor, IMU)
   firmware/display/        ESP32-S3 ESP-IDF project (LVGL 8.3)
-  tests/                   native simulator and the T1..T22 tests
+  tests/                   native simulator and the T1..T29 tests
   tools/rtd.py             build, flash, test, audio and dist wrapper
   tools/run_tests.py       builds and runs the tests with a native g++
   tools/png2lvgl.py        PNG to LVGL 8 C array (RGB565 + alpha)
@@ -364,9 +364,10 @@ The page refreshes every second. It shows:
 | `rx_drop`, `tx_fail`, `bad_frame` | Radio faults since boot (each stops at 255) |
 | `loop_max_ms`, `link_gap_ds` | Longest loop pass and longest gap between host frames (0.1 s units) since the last report |
 | `btn_edges`, `btn_drop`, `stick_state`, `mpu_ok` | Joystick only: button presses, lost presses, state, accelerometer answer |
+| `shake_count`, `shake_peak_max_dg`, `shake_peak_min_dg`, `shake_peak_avg_dg`, `shake_soft_max_dg` | Joystick only, last shake round, for calibration: counted shakes; highest, lowest and average peak of a counted shake; highest magnitude that stayed below the count threshold. Peaks are in 0.1 g (15 = the 1.5 g threshold) |
 | `snap_per_10s`, `touch_ok`, `ota_state`, `screen` | Display only: snapshots in 10 s, touch controller answer, OTA state, phase on screen |
 
-Each device sends one value per second, so a full row needs about 13 s. A joystick reports only while it is idle, not during a round.
+Each device sends one value per second, so a full row needs about 18 s. A joystick reports only while it is idle, not during a round.
 
 ### Debug Wi-Fi
 
@@ -406,7 +407,7 @@ The PC must be on the `RTD-Host` network for `debug`.
 
 ## Protocol
 
-Firmware V4.0.2, protocol version 4. All devices use ESP-NOW on Wi-Fi channel 6 with power save off. The first byte selects the frame type.
+Firmware V4.0.3, protocol version 4. All devices use ESP-NOW on Wi-Fi channel 6 with power save off. The first byte selects the frame type.
 
 `GamePacket`, 7 bytes, first byte `0x0A`:
 
@@ -460,7 +461,7 @@ Reliability rules, address learning and the rest of the protocol are in `docs/DE
 
 The simulator links the real game core with fake ports: a virtual clock with microsecond event resolution, a radio with per-link loss, 0..3 ms jitter and duplicates, four `StickLogic` instances with scripted players, one `HostGame` and one `DisplayLink`.
 
-The 27 tests cover the protocol and CRC, the happy path, join order and join edge cases, GO fairness, false starts, lost results, stick failures, ties, settings, actions, the 32-bit clock wrap, the OTA sequence, the display link and a 2000-game fuzz run. T16 to T22 are regression tests for defects that a code review found: a stale stick slot after a lost idle command or a host reboot, scoring after a long uptime, OTA from maintenance mode, the idle prompt interval, the shake start time and a button edge before GO. T24 to T27 cover places scoring, the bonus round, a catch-up win through the bonus round and the scoring settings latch.
+The 29 tests cover the protocol and CRC, the happy path, join order and join edge cases, GO fairness, false starts, lost results, stick failures, ties, settings, actions, the 32-bit clock wrap, the OTA sequence, the display link and a 2000-game fuzz run. T16 to T22 are regression tests for defects that a code review found: a stale stick slot after a lost idle command or a host reboot, scoring after a long uptime, OTA from maintenance mode, the idle prompt interval, the shake start time and a button edge before GO. T24 to T27 cover places scoring, the bonus round, a catch-up win through the bonus round and the scoring settings latch. T28 covers shake detection in every direction and at rest, T29 the reaction wait countdown.
 
 The firmware builds are checked by the compiler only. Touch, OTA, LED and audio behavior were not yet run on hardware at the time of the 2.0 commit.
 

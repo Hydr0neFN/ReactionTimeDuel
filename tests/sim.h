@@ -30,8 +30,17 @@ struct PlayerScript {
   uint32_t reactMs;
   uint32_t earlyMs;
   uint32_t secondMs;
-  uint32_t shakeUs;   /* period of one shake in us, 0 = no shaking */
+  uint32_t shakeUs;   /* period of one full shake cycle in us, 0 = no shaking */
+  uint8_t  shakeAxis; /* SHAKE_AXIS_* */
+  uint32_t shakeLeadUs; /* the player starts shaking this long after the real GO */
+  uint8_t  gravAxis;  /* axis that carries 1 g: 0 X, 1 Y, 2 Z */
+  uint16_t noiseLsb;  /* amplitude of the sensor noise in LSB */
 };
+
+#define SHAKE_AXIS_X     0
+#define SHAKE_AXIS_Y     1
+#define SHAKE_AXIS_Z     2
+#define SHAKE_AXIS_DIAG  3   /* mixed signs: +x -y +z */
 
 class Sim {
 public:
@@ -57,7 +66,7 @@ public:
 
   /* ---- player scripts ---- */
   PlayerScript player[SIM_STICKS + 1];
-  void setPlayer(uint8_t id, uint8_t kind, uint32_t reactMs, uint32_t shakeUs);
+  void setPlayer(uint8_t id, uint8_t kind, uint32_t reactMs, uint32_t shakeUs, uint8_t shakeAxis = SHAKE_AXIS_X);
 
   /* ---- button input ---- */
   void press(uint8_t id, uint32_t delayMs, uint32_t holdMs = 100);

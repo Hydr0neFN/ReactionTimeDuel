@@ -231,6 +231,26 @@ void Leds::updateRings(const LedView& view, uint32_t now) {
       break;
     }
 
+    case NEO_REACT_WAIT:
+      /* Player rings in the player colour, centre ring: amber countdown in stages (waitLit). */
+      if (now - neoLastMs_ > 40) {
+        neoLastMs_ = now;
+        for (uint8_t r = 0; r < NUM_RINGS; r++) {
+          if (r == CENTER_RING) continue;
+          bool active = false;
+          for (uint8_t p = 0; p < RTD_MAX_PLAYERS; p++) {
+            if ((view.activeMask & (uint8_t)(1u << p)) && PLAYER_TO_RING[p] == r) active = true;
+          }
+          setRing(r, active && view.ringColor[r] != RTD_RGB_OFF ? rgb(view.ringColor[r]) : RGB_OFF);
+        }
+        uint8_t start = (uint8_t)(CENTER_RING * LEDS_PER_RING);
+        for (uint8_t i = 0; i < LEDS_PER_RING; i++) {
+          pixels_.SetPixelColor((uint16_t)(start + i), i < view.waitLit ? RGB_HANZE : RGB_OFF);
+        }
+        showRings();
+      }
+      break;
+
     case NEO_SHAKE_COUNTDOWN:
       if (now - neoLastMs_ > 30) {
         neoLastMs_ = now;

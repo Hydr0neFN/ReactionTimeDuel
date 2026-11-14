@@ -1576,6 +1576,10 @@ static void testT21() {
   /* the same physical shake for both: it starts at the real GO instant */
   sim.setPlayer(1, PL_NONE, 0, 120000);
   sim.setPlayer(2, PL_NONE, 0, 120000);
+  /* the players start shaking 600 ms after GO, so both sticks start from rest (a stick
+     that gets a late GO would otherwise take gravity from the middle of a shake) */
+  sim.player[1].shakeLeadUs = 600000;
+  sim.player[2].shakeLeadUs = 600000;
   sim.press(1, 10, 100);
   sim.press(2, 20, 100);
   CHECK(waitJoined(sim, 0x03, 5000));
@@ -2088,6 +2092,182 @@ static void testT27() {
 
 typedef void (*TestFn)();
 
+/* ===================================================================== */
+/* T28 shake detection works in every direction                          */
+/* ===================================================================== */
+
+static Sim* startShakeGame(Sim* sim, uint8_t sticks) {
+  uint8_t cfg[CFG_SLOTS];
+  defaultCfg(cfg);
+  cfg[CFG_VOICE_GUIDE] = 0;
+  cfg[CFG_JOIN_TIME] = 3;
+  cfg[CFG_ROUNDS] = 1;
+  cfg[CFG_GAME_MODE] = 2;
+  sim->beginWith(cfg, TIME_NONE, 0);
+  sim->setJitterMs(0);
+  for (uint8_t id = 1; id <= sticks; id++) sim->press(id, 10u * id, 100);
+  return sim;
+}
+
+static void testT28() {
+  /* a shake along X only, Y only, Z only (on top of gravity) and a mixed-sign diagonal:
+     every stick reaches the target, and the count per shake cycle is 2 */
+  {
+    Sim sim(2801);
+    startShakeGame(&sim, 4);
+    const uint32_t period = 100000;   /* 100 ms per cycle */
+    for (uint8_t id = 1; id <= 4; id++) sim.setPlayer(id, PL_NONE, 0, period, (uint8_t)(id - 1));
+    CHECK(waitJoined(sim, 0x0F, 5000));
+    CHECK(sim.runUntilPhase(PH_SHAKE, 20000));
+    int target = sim.host().state().shake_target;
+    CHECK(target == 10 || target == 15 || target == 20);
+    CHECK(sim.runUntilPhase(PH_RESULTS, 40000));
+    const StatePacket& st = sim.host().state();
+    for (uint8_t id = 1; id <= 4; id++) {
+      uint8_t slot = slotOf(st, id);
+      CHECK(slot != 0);
+      if (slot == 0) continue;
+      CHECK(st.players[slot - 1].status == PS_DONE);
+      /* target x SHAKE_FACTOR counts at 2 per cycle: target x 2 cycles of 100 ms, the last count
+         comes 25 ms into the last half cycle */
+      int expect = target * (SHAKE_FACTOR / 2) * 100 - 25;
+      CHECK(idiff(st.players[slot - 1].time_ms, expect) <= 40);
+      const StickLogic& sl = sim.stick(id);
+      CHECK(sl.shakeCount() == target * SHAKE_FACTOR);
+      /* calibration values: plausible and in order */
+      CHECK(sl.shakeFinished() == sl.shakeCount());
+      CHECK(sl.shakeMinPeak() >= SHAKE_HIGH_LSB);
+      CHECK(sl.shakeMinPeak() <= sl.shakeAvgPeak());
+      CHECK(sl.shakeAvgPeak() <= sl.shakeMaxPeak());
+      CHECK(sl.shakeMaxPeak() < 3 * SHAKE_LSB_PER_G * 2);
+      CHECK(sl.shakeSoftMax() < SHAKE_HIGH_LSB);
+    }
+  }
+
+  /* a stick at rest counts nothing, whichever side gravity is on, with sensor noise */
+  {
+    Sim sim(2802);
+    startShakeGame(&sim, 3);
+    for (uint8_t id = 1; id <= 3; id++) {
+      sim.setPlayer(id, PL_NONE, 0, 0);
+      sim.player[id].gravAxis = (uint8_t)(id - 1);
+      sim.player[id].noiseLsb = 300;   /* 0.07 g */
+    }
+    CHECK(waitJoined(sim, 0x07, 5000));
+    CHECK(sim.runUntilPhase(PH_RESULTS, 60000));
+    for (uint8_t id = 1; id <= 3; id++) {
+      const StickLogic& sl = sim.stick(id);
+      CHECK(sl.shakeCount() == 0);
+      CHECK(sl.shakeSoftMax() < SHAKE_LOW_LSB);
+    }
+  }
+}
+
+/* ===================================================================== */
+/* T29 reaction wait: centre ring counts down in random stages            */
+/* ===================================================================== */
+
+struct WaitRound {
+  int delay;
+  int iv[REACT_WAIT_STAGES];
+};
+
+static void testT29() {
+  static WaitRound rounds[64];
+  int nRounds = 0;
+  const uint8_t ringLit[] = {12, 9, 6, 3};
+
+  for (uint32_t seed = 0; seed < 14 && nRounds < 60; seed++) {
+    Sim sim(2900 + seed, (uint64_t)seed * 7654321u);
+    uint8_t cfg[CFG_SLOTS];
+    defaultCfg(cfg);
+    cfg[CFG_VOICE_GUIDE] = 0;
+    cfg[CFG_JOIN_TIME] = 3;
+    cfg[CFG_ROUNDS] = 2;
+    cfg[CFG_GAME_MODE] = 1;
+    sim.beginWith(cfg, TIME_NONE, 0);
+    sim.setPlayer(1, PL_NORMAL, 250, 0);
+    sim.setPlayer(2, PL_NORMAL, 300, 0);
+    sim.press(1, 10, 100);
+    sim.press(2, 20, 100);
+    CHECK(waitJoined(sim, 0x03, 5000));
+
+    bool inWait = false;
+    uint8_t prevLit = 0;
+    uint32_t t0 = 0, tChange[REACT_WAIT_STAGES];
+    int changes = 0;
+    for (int i = 0; i < 150000; i++) {
+      sim.step();
+      uint8_t phase = sim.host().phase();
+      uint8_t lit = sim.host().leds().waitLit;
+      uint32_t now = sim.nowMs();
+      if (phase == PH_REACT_WAIT) {
+        CHECK(sim.host().leds().neoMode == NEO_REACT_WAIT);
+        if (!inWait) {
+          inWait = true;
+          t0 = now;
+          changes = 0;
+          CHECK(lit == 12);
+        } else {
+          CHECK(lit < prevLit ? (prevLit - lit == 3) : lit == prevLit);   /* never rises */
+          if (lit < prevLit && changes < REACT_WAIT_STAGES) tChange[changes++] = now;
+        }
+        bool known = false;
+        for (uint8_t k = 0; k < 4; k++) known = known || lit == ringLit[k];
+        CHECK(known);   /* 12, 9, 6, 3 only, never empty before GO */
+        prevLit = lit;
+      } else {
+        CHECK(lit == 0);   /* the count runs only in PH_REACT_WAIT */
+        if (inWait) {
+          /* the GO tick: the last stage ends here */
+          inWait = false;
+          CHECK(phase == PH_GO);
+          CHECK(changes == REACT_WAIT_STAGES - 1);
+          if (changes == REACT_WAIT_STAGES - 1 && nRounds < 64) {
+            WaitRound& r = rounds[nRounds++];
+            r.delay = (int)(now - t0);
+            r.iv[0] = (int)(tChange[0] - t0);
+            r.iv[1] = (int)(tChange[1] - tChange[0]);
+            r.iv[2] = (int)(tChange[2] - tChange[1]);
+            r.iv[3] = (int)(now - tChange[2]);
+          }
+        }
+      }
+      if (phase == PH_FINAL) break;
+    }
+  }
+
+  CHECK(nRounds >= 20);
+
+  int spread = 0, same = 0, lastMin = 99999, lastMax = 0;
+  for (int a = 0; a < nRounds; a++) {
+    int mn = 99999, mx = 0, sum = 0;
+    for (int k = 0; k < REACT_WAIT_STAGES; k++) {
+      int v = rounds[a].iv[k];
+      sum += v;
+      if (v < mn) mn = v;
+      if (v > mx) mx = v;
+      CHECK(v >= REACT_WAIT_STAGE_MIN_MS - 3);
+    }
+    CHECK(idiff(sum, rounds[a].delay) <= 2);
+    CHECK(rounds[a].delay >= 2995 && rounds[a].delay <= 7005);
+    if (mx >= 2 * mn) spread++;
+    int last = rounds[a].iv[REACT_WAIT_STAGES - 1];
+    if (last < lastMin) lastMin = last;
+    if (last > lastMax) lastMax = last;
+    for (int b = 0; b < a; b++) {
+      if (idiff(rounds[a].delay, rounds[b].delay) > 20) continue;
+      bool eq = true;
+      for (int k = 0; k < REACT_WAIT_STAGES; k++) eq = eq && idiff(rounds[a].iv[k], rounds[b].iv[k]) <= 2;
+      if (eq) same++;
+    }
+  }
+  CHECK(spread * 10 >= nRounds * 7);   /* most rounds: longest stage >= 2 x the shortest */
+  CHECK(same == 0);                    /* patterns differ between rounds with the same delay */
+  CHECK(lastMin < 600);
+  CHECK(lastMax > 1500);
+}
+
 struct TestCase {
   const char* id;
   const char* name;
@@ -2123,6 +2303,8 @@ int main() {
     {"T25", "bonus round", testT25},
     {"T26", "catch-up through the bonus round", testT26},
     {"T27", "scoring settings latch", testT27},
+    {"T28", "shake in every direction", testT28},
+    {"T29", "reaction wait countdown", testT29},
   };
 
   int count = (int)(sizeof(cases) / sizeof(cases[0]));

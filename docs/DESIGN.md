@@ -1,6 +1,6 @@
 # Reaction Time Duel 2.0 — Design (normative)
 
-This document is the contract for the 2.0 rework. Firmware version `V4.0.2`, protocol version 4.
+This document is the contract for the 2.0 rework. Firmware version `V4.0.3`, protocol version 4.
 The baseline (the code that worked at the Hanze open day) is git commit `cc638ad`.
 Rule for every job: keep the baseline game rules, timings, LED and audio behaviour unless a section here changes it.
 
@@ -142,7 +142,7 @@ Port from `firmware/host/src/main.cpp` of the baseline. Same states, same timing
 | 1 | `PH_JOIN` | STATE_JOIN |
 | 2 | `PH_ANNOUNCE` | mode announcement (first part of STATE_COUNTDOWN / STATE_REACTION) |
 | 3 | `PH_COUNTDOWN` | shake 3-2-1 |
-| 4 | `PH_REACT_WAIT` | random delay before GO |
+| 4 | `PH_REACT_WAIT` | random delay before GO; the centre ring counts down in 4 stages (H15) |
 | 5 | `PH_GO` | STATE_COLLECT (reaction GO fired) |
 | 6 | `PH_SHAKE` | STATE_SHAKE |
 | 7 | `PH_RESULTS` | STATE_SHOW_RESULTS |
@@ -163,6 +163,7 @@ Port from `firmware/host/src/main.cpp` of the baseline. Same states, same timing
 - **H10 Beacon** every 500 ms in every phase.
 - **H11 Stick presence.** A stick is online when any valid packet from it arrived in the last 3000 ms. The version from `CMD_HEARTBEAT` / `CMD_REQ_ID` is kept per stick.
 - **H12 `randomSeed`** from the hardware RNG, not from an ADC pin.
+- **H15 Reaction wait ring.** In `PH_REACT_WAIT` (`NEO_REACT_WAIT`) every active player ring shows the player colour and the centre ring is amber (`RGB_HANZE`), a real countdown with random stage lengths. 12 LEDs are lit at the start; 3 LEDs go off at the end of each of the 4 stages (12, 9, 6, 3, 0 lit; `REACT_WAIT_STAGES`). The 4 stage lengths are random weights (squared, so the stages are uneven) scaled to the free time above a minimum of 300 ms per stage; they sum to exactly `reactDelayMs_`. The last stage ends in the tick in which `fireGo()` runs, so the ring is empty exactly at GO and at least 3 LEDs are lit before. The ring shows that GO comes soon but not when: the last stage can be short or long. The stage lengths come from a private xorshift32 (mixed with `ports_.micros()` at each entry), so `ports_.random()` and the delay choice are untouched. `LedView.waitLit` is the lit count (0 outside the phase). After GO `NEO_FIXED_COLOR` and `paintLimit` take the centre ring over as before.
 - **H13 Scoring.** `CFG_SCORING` selects the rule of a regular round. `SCORING_CLASSIC`: the round winner gets 1 point. `SCORING_PLACES`: a player with a valid time gets 1 point for each other active player that it beat. A player beats another player when the other player has no valid time (`PS_PENALTY`, or still no result) or has a time that is strictly longer. Two players with the same time do not beat each other. A player without a valid time gets 0 points. Four active players with four different valid times get 3 / 2 / 1 / 0 points. Two active players get 1 / 0, the same as classic. A score saturates at 255. The round winner, the winner sounds and the records stay as they are. The end of the game (H7) works on the scores whatever the rule.
 - **H14 Bonus round.** `CFG_BONUS` selects the bonus rounds. `BONUS_LAST`: the last regular round is a bonus round, and only when the game has 2 or more rounds. `BONUS_LAST_TWO`: the last two regular rounds are bonus rounds when the game has 3 or more rounds; with 2 rounds only the last round; with 1 round none. In a bonus round every point of H13 counts double. `STF_BONUS` is set from the start of the bonus round (the announcement) until the round after it starts, or until the game goes to `PH_FINAL`, `PH_IDLE` or a deuce. It stays set in the results of the bonus round. A deuce round and a sudden-death round always use `SCORING_CLASSIC` and are never a bonus round, so that `CFG_DEUCE_LEAD` keeps its meaning.
 - **State flags.** `STF_DEUCE` 0x01, `STF_SCORES` 0x02, `STF_NEW_RECORD` 0x04, `STF_CAN_START` 0x08, `STF_UPDATE_AVAILABLE` 0x10, `STF_BONUS` 0x20.
@@ -184,7 +185,7 @@ Port from `firmware/host/src/main.cpp` of the baseline. Same states, same timing
 
 `HostGame` API: `begin(cfg, bestAlltime, gamesTotal)`, `onPacket(data, len, rxMicros)`, `tick()`, `const StatePacket& state()` (CRC and seq are set by `buildState()` when the firmware sends it), `const LedView& leds()`, `stateChanged()` / `clearStateChanged()`.
 
-`LedView` carries what the LED code of the baseline read from globals: neo mode, the 5 ring override colours (0 = none, else 0xRRGGBB), the 5 ring blink flags, the blinking slot, "flash until" time, joined and active masks, per player progress in percent, shake start time. The LED animations stay in the firmware.
+`LedView` carries what the LED code of the baseline read from globals: neo mode, the 5 ring override colours (0 = none, else 0xRRGGBB), the 5 ring blink flags, the blinking slot, "flash until" time, joined and active masks, per player progress in percent, shake start time, the lit count `waitLit` of the reaction wait ring. The LED animations stay in the firmware.
 
 `RtdSound` is an enum with one value per MP3 file of `firmware/host/data`; the firmware maps it to the file name.
 
@@ -201,7 +202,12 @@ Changes against the baseline:
 - **J1** Timing and false start as in section 4.
 - **J2** Reliability and resync as in section 3.3. No `delay()` anywhere; the baseline `sendToHostRetry` (3 sends with `delay(20)`) is replaced by the resend rule.
 - **J3** Heartbeat every 1000 ms in every state except `JS_OTA`.
-- **J4** Shake detection is unchanged: same threshold, same 200 Hz sampling, same internal factor 3, same progress messages. This algorithm was tuned on the real hardware.
+- **J4** Shake detection works in every direction (V4.0.3). The old code summed the three axes (`|ax + ay + az| > 67152`) at the default +-2 g range: one axis saturates at 32767, so a shake along one axis never counted and axes with opposite signs cancelled. Now:
+  - `mpuInit()` sets the MPU-6050 to +-8 g (`ACCEL_CONFIG` 0x10, 4096 LSB per g) and the low-pass filter to 44 Hz (`CONFIG` 3), which removes the buzz of the vibration motor but passes shakes.
+  - The sampling stays 200 Hz (every 5 ms). The stick keeps a gravity estimate per axis (integer low-pass, 1/64 per sample, time constant about 320 ms, started from the first sample after GO). The dynamic vector is the sample minus the gravity. Its squared length (each axis clamped to +-32767, sum in `uint32_t`, no float) is compared with the squared thresholds.
+  - One count on the rising crossing of `SHAKE_HIGH_LSB` (1.5 g). The detector re-arms when the length falls below `SHAKE_LOW_LSB` (0.75 g) and only counts again after `SHAKE_MIN_GAP_MS` (40 ms).
+  - A back-and-forth shake makes two counts (one per reversal). `SHAKE_FACTOR` is 4: the host targets 10 / 15 / 20 mean 40 / 60 / 80 counts, that is 20 / 30 / 40 full cycles. The progress frame `(milestone << 8) | target` stays below 256 (largest 80), and the host percentage `milestone x 100 / target` is unchanged.
+  - Calibration values of the last shake round stay in `StickLogic` until the next shake GO and go to the host as `CMD_DIAG` keys (section 11.1). A "peak" is the highest dynamic length of one counted shake.
 - **J5** Stick ID at run time (one binary for all four sticks, needed for OTA). Order: EEPROM record (magic + ID) -> MAC table in `RtdNetConfig.h` -> none. A build with `-DMY_ID=n` (env `stick1..stick4`) writes the EEPROM record on boot when it differs. Env `stick` (no `MY_ID`) is the OTA image. A stick without an ID does not join; it pulses the motor 3 times at boot.
 - **J6** Radio: `WIFI_NONE_SLEEP`, maximum TX power.
 - **J7** Motor pulses are timed with unsigned subtraction (`millis() - start >= duration`), not with an absolute end time.
@@ -396,6 +402,8 @@ A simulator links `rtd_core` with fake ports: a virtual clock (1 ms steps, micro
 | T25 | bonus round | `STF_BONUS` clear in the rounds before, set from the start of the bonus round through its results, clear in `PH_FINAL`; the points double under classic and under places; `BONUS_LAST_TWO` with 5, 3, 2 and 1 rounds; never in a deuce or a sudden death; `BONUS_OFF` |
 | T26 | catch-up | a player that is behind before the last round wins the game through the bonus round |
 | T27 | scoring settings | the defaults are 1 / 1; both keys clamp; a change in the middle of a game does not change the running game, in both directions |
+| T28 | shake directions | a shake along X, Y, Z (on top of gravity) and a mixed-sign diagonal each reach the target, 2 counts per cycle (time to target), the calibration values are plausible; sticks at rest with gravity on X, Y or Z and noise count 0 |
+| T29 | reaction wait ring | `waitLit` is 12 at entry, only 12 / 9 / 6 / 3 before GO, never rises, 0 at the GO tick and outside `PH_REACT_WAIT`; the 4 stages are at least 300 ms, sum to the delay, are uneven (longest >= 2 x shortest in most rounds), differ between rounds with the same delay and the last stage has a wide spread |
 
 The three firmware builds (`pio run`) are checks too.
 
@@ -407,7 +415,8 @@ Goal: find a fault on real hardware with one USB cable (host) or with no cable (
 
 - `CMD_DIAG` (0x46), `dest_id = ID_HOST`, `data_high` = `DIAG_*` key, `data_low` = value (saturates at 255). `HostGame`, `StickLogic` and `DisplayLink` ignore the command; the firmware glue sends and reads it.
 - Each device sends one key every `DIAG_INTERVAL_MS` (1 s) and rotates through its keys. A stick sends `DIAG_FW_VERSION`, `DIAG_MPU_OK` and `DIAG_STICK_STATE` first.
-- While the beacon shows `PH_MAINT` (service menu open), a stick sends one key every `DIAG_INTERVAL_FAST_MS` (200 ms). A full rotation of 13 keys then takes 2.6 s.
+- Shake calibration keys of a stick (acceleration in 0.1 g, `peak LSB x 10 / 4096`, saturates at 255): `DIAG_SHAKE_COUNT` `shake_count`, `DIAG_SHAKE_PEAK_MAX` `shake_peak_max_dg`, `DIAG_SHAKE_PEAK_MIN` `shake_peak_min_dg`, `DIAG_SHAKE_PEAK_AVG` `shake_peak_avg_dg`, `DIAG_SHAKE_SOFT_MAX` `shake_soft_max_dg` (the highest length that stayed below the high threshold: how close a too-soft shake came). They describe the last shake round and arrive after it, while the stick is idle. A full rotation of 18 keys takes 18 s (3.6 s in the service menu).
+- While the beacon shows `PH_MAINT` (service menu open), a stick sends one key every `DIAG_INTERVAL_FAST_MS` (200 ms). A full rotation of 18 keys then takes 3.6 s.
 - A stick sends `CMD_DIAG` only while `StickLogic::state() == JS_IDLE`, so that a round has no extra frame on the air.
 
 ### 11.2 Host debug hub
@@ -546,7 +555,7 @@ The host sends nothing before the first request. A lost request costs nothing: t
 #define FW_VERSION_MAJOR  4
 #define FW_VERSION_MINOR  0
 #define FW_VERSION_PATCH  1
-#define FW_VERSION_STRING "V4.0.2"
+#define FW_VERSION_STRING "V4.0.3"
 #define FW_VERSION_BYTE   ((uint8_t)((FW_VERSION_MAJOR << 4) | FW_VERSION_MINOR))
 #define PROTO_VERSION     4
 

@@ -21,7 +21,7 @@
 #define DBG_EVENT_TEXT_MAX 128
 #define DBG_DEVICE_COUNT   5   /* sticks 1..4, then the display */
 #define DBG_DEVICE_NONE    0xFF
-#define DBG_DIAG_SLOTS     24  /* the 17 known keys plus room for new ones */
+#define DBG_DIAG_SLOTS     24  /* the 22 known keys plus room for new ones */
 #define DBG_TX_DESTS       6   /* sticks 1..4, display, broadcast */
 
 /* Event types. */

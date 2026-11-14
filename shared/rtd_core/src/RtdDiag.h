@@ -34,6 +34,12 @@
 #define DIAG_BTN_DROP         0x11  /* presses dropped because the button ring was full */
 #define DIAG_STICK_STATE      0x12  /* JS_* state */
 #define DIAG_MPU_OK           0x13  /* 1 = the accelerometer answers */
+/* Shake calibration, last shake round, kept until the next shake GO. Acceleration keys: 0.1 g units. */
+#define DIAG_SHAKE_COUNT      0x14  /* counted shakes */
+#define DIAG_SHAKE_PEAK_MAX   0x15  /* highest peak of a counted shake */
+#define DIAG_SHAKE_PEAK_MIN   0x16  /* lowest peak of a counted shake */
+#define DIAG_SHAKE_PEAK_AVG   0x17  /* average peak of the counted shakes */
+#define DIAG_SHAKE_SOFT_MAX   0x18  /* highest magnitude that stayed below the high threshold */
 
 /* Display */
 #define DIAG_SNAP_PER_10S     0x20  /* valid snapshots received in the last 10 s */
@@ -58,6 +64,11 @@ static inline const char* rtdDiagKeyName(uint8_t key) {
     case DIAG_BTN_DROP:     return "btn_drop";
     case DIAG_STICK_STATE:  return "stick_state";
     case DIAG_MPU_OK:       return "mpu_ok";
+    case DIAG_SHAKE_COUNT:    return "shake_count";
+    case DIAG_SHAKE_PEAK_MAX: return "shake_peak_max_dg";
+    case DIAG_SHAKE_PEAK_MIN: return "shake_peak_min_dg";
+    case DIAG_SHAKE_PEAK_AVG: return "shake_peak_avg_dg";
+    case DIAG_SHAKE_SOFT_MAX: return "shake_soft_max_dg";
     case DIAG_SNAP_PER_10S: return "snap_per_10s";
     case DIAG_TOUCH_OK:     return "touch_ok";
     case DIAG_OTA_STATE:    return "ota_state";

@@ -6,8 +6,8 @@
 
 #define FW_VERSION_MAJOR  4
 #define FW_VERSION_MINOR  0
-#define FW_VERSION_PATCH  2
-#define FW_VERSION_STRING "V4.0.2"
+#define FW_VERSION_PATCH  3
+#define FW_VERSION_STRING "V4.0.3"
 #define FW_VERSION_BYTE   ((uint8_t)((FW_VERSION_MAJOR << 4) | FW_VERSION_MINOR))
 #define PROTO_VERSION     4
 

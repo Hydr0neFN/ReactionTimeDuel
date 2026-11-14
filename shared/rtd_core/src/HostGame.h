@@ -58,6 +58,12 @@ static const uint8_t SHAKE_TARGETS[NUM_SHAKE_TARGETS] = {10, 15, 20};
 #define IDLE_REPEAT_COUNT      3       /* CMD_IDLE broadcasts on abort / idle */
 
 /* ---- LED view (the animations stay in the firmware) ---- */
+/* Reaction wait: the centre ring counts down in this many stages of equal LED count,
+ * at random intervals that sum to the wait; the last stage ends at GO. */
+#define REACT_WAIT_STAGES     4
+#define REACT_WAIT_LEDS       12   /* LEDs of the centre ring */
+#define REACT_WAIT_STAGE_MIN_MS 300
+
 #define NEO_OFF             0
 #define NEO_IDLE_RAINBOW    1
 #define NEO_STATUS          2
@@ -66,6 +72,7 @@ static const uint8_t SHAKE_TARGETS[NUM_SHAKE_TARGETS] = {10, 15, 20};
 #define NEO_COUNTDOWN       5
 #define NEO_BLINK_SLOT      6
 #define NEO_SHAKE_COUNTDOWN 7
+#define NEO_REACT_WAIT     8   /* reaction wait: player colours, centre ring counts down in stages */
 
 #define RTD_RGB_OFF    0x000000u
 #define RTD_RGB_RED    0xFF0000u
@@ -120,6 +127,7 @@ struct LedView {
   uint32_t shakeStartMs;        /* millis() at GO of a shake round */
   uint32_t limitStartMs;        /* millis() at GO, start of the centre ring countdown */
   uint32_t limitMs;             /* round limit in ms, 0 = no countdown */
+  uint8_t  waitLit;             /* PH_REACT_WAIT: lit LEDs of the centre ring (12, 9, 6, 3), 0 at GO and outside */
 };
 
 /*
@@ -215,6 +223,7 @@ private:
   void resetGame();
   void buildSnapshot();
   void updateLeds();
+  void planReactWait();
   void updateRetries(uint32_t now);
   void updateBeacons(uint32_t now);
   void updateStateSend(uint32_t now);
@@ -312,6 +321,8 @@ private:
   uint8_t  lastTargetIdx_;
   uint8_t  modeBagIdx_;
   uint16_t reactDelayMs_;
+  uint16_t waitStageEndMs_[REACT_WAIT_STAGES];  /* end of each wait stage, after PH_REACT_WAIT entry */
+  uint32_t waitRng_;                            /* private xorshift32, keeps ports_.random() untouched */
 
   /* --- join --- */
   uint32_t promptTimerStart_;

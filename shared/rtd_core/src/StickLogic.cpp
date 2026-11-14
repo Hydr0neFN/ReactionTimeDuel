@@ -35,7 +35,17 @@ StickLogic::StickLogic(StickPorts& ports, uint8_t stickId)
       blankS1_(false),
       blankSampleMs_(0),
       shakeCount_(0),
-      shakeWasAbove_(false),
+      shakeArmed_(true),
+      shakeGravInit_(false),
+      shakeLastCountMs_(0),
+      shakePeak2_(0),
+      shakePeak_(0),
+      shakeFinished_(0),
+      shakeMaxPeak_(0),
+      shakeMinPeak_(0),
+      shakePeakSum_(0),
+      shakeSoftMax_(0),
+      shakeSoft2_(0),
       shakeStartMs_(0),
       lastAccelMs_(0),
       shakeLastReported_(0),
@@ -76,7 +86,8 @@ void StickLogic::goIdle() {
   blankSampled_ = false;
   blankDone_ = false;
   shakeCount_ = 0;
-  shakeWasAbove_ = false;
+  shakeArmed_ = true;
+  shakeGravInit_ = false;
 }
 
 void StickLogic::startJoinRequest(uint32_t now) {
@@ -151,7 +162,9 @@ void StickLogic::handleGo(const GamePacket& pkt, uint16_t data, uint32_t rxMicro
   if (mode_ == MODE_SHAKE) {
     vibStart(GO_VIBRATE_MS);
     shakeCount_ = 0;
-    shakeWasAbove_ = false;
+    shakeArmed_ = true;
+    shakeGravInit_ = false;
+    shakeStatsClear();
     shakeLastReported_ = 0;
     shakeStartMs_ = goMs_;
     lastAccelMs_ = goMs_;
@@ -292,6 +305,46 @@ void StickLogic::reactionTick(uint32_t now) {
   }
 }
 
+static uint16_t isqrt32(uint32_t v) {
+  uint32_t r = 0;
+  for (uint32_t bit = 1u << 15; bit; bit >>= 1) {
+    uint32_t t = r | bit;
+    if (t * t <= v) r = t;
+  }
+  return (uint16_t)r;
+}
+
+void StickLogic::shakeStatsClear() {
+  shakePeak2_ = 0;
+  shakePeak_ = 0;
+  shakeFinished_ = 0;
+  shakeMaxPeak_ = 0;
+  shakeMinPeak_ = 0xFFFF;
+  shakePeakSum_ = 0;
+  shakeSoftMax_ = 0;
+  shakeSoft2_ = 0;
+}
+
+/* The running excursion is over: its peak joins the round statistics. */
+void StickLogic::shakeEndExcursion() {
+  shakePeak_ = isqrt32(shakePeak2_);
+  shakeFinished_++;
+  shakePeakSum_ += shakePeak_;
+  if (shakePeak_ > shakeMaxPeak_) shakeMaxPeak_ = shakePeak_;
+  if (shakePeak_ < shakeMinPeak_) shakeMinPeak_ = shakePeak_;
+}
+
+void StickLogic::shakeSoftEnd() {
+  uint16_t soft = isqrt32(shakeSoft2_);
+  if (soft > shakeSoftMax_) shakeSoftMax_ = soft;
+  shakeSoft2_ = 0;
+}
+
+void StickLogic::shakeRoundEnd() {
+  if (!shakeArmed_) shakeEndExcursion();
+  shakeSoftEnd();
+}
+
 void StickLogic::shakeTick(uint32_t now) {
   if ((uint32_t)(now - lastAccelMs_) < SHAKE_SAMPLE_MS) return;
   lastAccelMs_ = now;
@@ -299,11 +352,40 @@ void StickLogic::shakeTick(uint32_t now) {
   int16_t ax, ay, az;
   if (!ports_.readAccel(ax, ay, az)) return;
 
-  int32_t mag = (int32_t)ax + (int32_t)ay + (int32_t)az;
-  if (mag < 0) mag = -mag;
+  const int32_t raw[3] = {ax, ay, az};
+  if (!shakeGravInit_) {
+    for (uint8_t i = 0; i < 3; i++) shakeGrav_[i] = raw[i] * (1 << SHAKE_GRAVITY_SHIFT);
+    shakeGravInit_ = true;
+  }
+  /* squared length of the dynamic vector; each axis clamped so the sum fits uint32_t */
+  uint32_t mag2 = 0;
+  for (uint8_t i = 0; i < 3; i++) {
+    int32_t g = shakeGrav_[i] / (1 << SHAKE_GRAVITY_SHIFT);
+    int32_t d = raw[i] - g;
+    shakeGrav_[i] += d;
+    if (d > 32767) d = 32767;
+    if (d < -32767) d = -32767;
+    mag2 += (uint32_t)(d * d);
+  }
 
-  bool above = mag > SHAKE_THRESHOLD;
-  if (above && !shakeWasAbove_) {
+  const uint32_t hi2 = (uint32_t)SHAKE_HIGH_LSB * SHAKE_HIGH_LSB;
+  const uint32_t lo2 = (uint32_t)SHAKE_LOW_LSB * SHAKE_LOW_LSB;
+  if (!shakeArmed_) {
+    if (mag2 > shakePeak2_) shakePeak2_ = mag2;
+    if (mag2 < lo2) {
+      shakeArmed_ = true;
+      shakeEndExcursion();
+    }
+  } else if (mag2 <= hi2) {
+    /* a bump that stays below the high threshold: remember its top when it ends */
+    if (mag2 > shakeSoft2_) shakeSoft2_ = mag2;
+    if (mag2 < lo2) shakeSoftEnd();
+  } else if (mag2 > hi2 &&
+             (shakeCount_ == 0 || (uint32_t)(now - shakeLastCountMs_) >= SHAKE_MIN_GAP_MS)) {
+    shakeArmed_ = false;
+    shakeLastCountMs_ = now;
+    shakePeak2_ = mag2;
+    shakeSoft2_ = 0;   /* the rising edge of a counted shake is not a soft shake */
     if (shakeCount_ < 0xFFFF) shakeCount_++;
     uint16_t step = (uint16_t)(shakeTarget_ / SHAKE_PROGRESS_STEPS);
     if (step < 1) step = 1;
@@ -314,9 +396,9 @@ void StickLogic::shakeTick(uint32_t now) {
               (uint16_t)(((uint16_t)milestone << 8) | (shakeTarget_ & 0xFF)));
     }
   }
-  shakeWasAbove_ = above;
 
   if (shakeCount_ >= shakeTarget_) {
+    shakeRoundEnd();
     uint32_t elapsed = (uint32_t)(now - shakeStartMs_);
     if (elapsed > 0xFFFEu) elapsed = 0xFFFEu;
     finish(CMD_SHAKE_DONE, (uint16_t)elapsed, now);
@@ -324,6 +406,7 @@ void StickLogic::shakeTick(uint32_t now) {
   }
 
   if ((uint32_t)(now - shakeStartMs_) > TIMEOUT_SHAKE) {
+    shakeRoundEnd();
     finish(CMD_SHAKE_DONE, TIME_PENALTY, now);
   }
 }

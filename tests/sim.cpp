@@ -131,6 +131,7 @@ Sim::Sim(uint32_t seed, uint64_t startUs)
   maintExitCalls = 0;
   for (uint32_t k = 0; k < CFG_SLOTS; k++) cfg_[k] = RTD_CFG_DEF[k];
   memset(player, 0, sizeof(player));
+  for (int i = 0; i <= SIM_STICKS; i++) player[i].gravAxis = 2;   /* lying flat */
   memset(goDrop_, 0, sizeof(goDrop_));
   memset(hostToStickLoss_, 0, sizeof(hostToStickLoss_));
   memset(stickToHostLoss_, 0, sizeof(stickToHostLoss_));
@@ -253,11 +254,12 @@ void Sim::dropGoFrames(uint8_t id, uint8_t count) {
   if (id >= 1 && id <= SIM_STICKS) goDrop_[id] = count;
 }
 
-void Sim::setPlayer(uint8_t id, uint8_t kind, uint32_t reactMs, uint32_t shakeUs) {
+void Sim::setPlayer(uint8_t id, uint8_t kind, uint32_t reactMs, uint32_t shakeUs, uint8_t shakeAxis) {
   if (id < 1 || id > SIM_STICKS) return;
   player[id].kind = kind;
   player[id].reactMs = reactMs;
   player[id].shakeUs = shakeUs;
+  player[id].shakeAxis = shakeAxis;
 }
 
 void Sim::setStickFw(uint8_t id, uint8_t ver, uint8_t patch) {
@@ -344,18 +346,36 @@ void Sim::updateAudio() {
 /* accelerometer                                                       */
 /* ------------------------------------------------------------------ */
 
+/* +-8 g sensor, 4096 LSB/g. One shake cycle is four equal beats: rest, +3 g, rest, -3 g
+   along the shake axis (two peaks per cycle), on top of gravity and noise. */
 bool Sim::readAccel(uint8_t id, int16_t& ax, int16_t& ay, int16_t& az) {
-  ax = 0;
-  ay = 0;
-  az = 16384;
-  uint32_t period = player[id].shakeUs;
-  if (period < 20) return true;
+  const PlayerScript& p = player[id];
+  int32_t a[3] = {0, 0, 0};
+  a[p.gravAxis % 3] = 4096;
+  uint32_t period = p.shakeUs;
   uint64_t t = nowUs_ - shakeStartUs_[id - 1];
-  if ((t % period) < (period / 2u)) {
-    ax = 30000;
-    ay = 30000;
-    az = 30000;
+  if (period >= 20 && t >= p.shakeLeadUs) {
+    t -= p.shakeLeadUs;
+    uint32_t beat = (uint32_t)((t % period) * 4u / period);
+    int32_t amp = beat == 1 ? 12288 : (beat == 3 ? -12288 : 0);
+    if (p.shakeAxis == SHAKE_AXIS_DIAG) {
+      a[0] += amp * 7 / 12;   /* ~ amp / sqrt(3) per axis, same total length */
+      a[1] -= amp * 7 / 12;
+      a[2] += amp * 7 / 12;
+    } else {
+      a[p.shakeAxis % 3] += amp;
+    }
   }
+  if (p.noiseLsb) {
+    uint32_t n = (uint32_t)(nowUs_ / 1000u) * 2654435761u;
+    for (int i = 0; i < 3; i++) {
+      n = n * 1664525u + 1013904223u;
+      a[i] += (int32_t)((n >> 16) % (2u * p.noiseLsb + 1u)) - (int32_t)p.noiseLsb;
+    }
+  }
+  ax = (int16_t)a[0];
+  ay = (int16_t)a[1];
+  az = (int16_t)a[2];
   return true;
 }
 

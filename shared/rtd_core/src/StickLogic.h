@@ -39,11 +39,16 @@
 #define DONE_RESET_MS           60000   /* safety reset while in JS_DONE */
 #define BEACON_MISS_LIMIT       2       /* beacons without this stick before a stale slot is dropped */
 
-/* ---- shake detection, tuned on the real hardware (do not change) ---- */
-#define SHAKE_BASE_G            16384
-#define SHAKE_THRESHOLD         ((SHAKE_BASE_G + 6000) * 3)   /* ~67152 raw magnitude */
+/* ---- shake detection (DESIGN.md section 6, J4) ----
+ * The MPU-6050 runs at +-8 g. The detector looks at the dynamic acceleration
+ * (sample minus a slow gravity estimate), so it works in every direction. */
+#define SHAKE_LSB_PER_G         4096    /* +-8 g range */
+#define SHAKE_HIGH_LSB          (SHAKE_LSB_PER_G * 3 / 2)   /* 1.5 g: count on the rising crossing */
+#define SHAKE_LOW_LSB           (SHAKE_LSB_PER_G * 3 / 4)   /* 0.75 g: re-arm below this */
+#define SHAKE_MIN_GAP_MS        40      /* minimum time between two counts */
+#define SHAKE_GRAVITY_SHIFT     6       /* gravity low-pass: 1/64 per 5 ms sample, ~320 ms */
 #define SHAKE_SAMPLE_MS         5       /* ~200 Hz */
-#define SHAKE_FACTOR            3       /* internal counts per host target unit */
+#define SHAKE_FACTOR            4       /* counts per host target unit (2 counts per shake cycle) */
 #define SHAKE_PROGRESS_STEPS    12      /* progress messages per ring */
 
 /*
@@ -105,6 +110,16 @@ public:
   /* Last result value sent to the host (ms, or TIME_PENALTY). */
   uint16_t lastResult() const { return lastResult_; }
 
+  /* Shake calibration values (raw LSB, 4096 = 1 g). They stay after the round ends and are
+     cleared at the next shake GO. A "peak" is the highest dynamic acceleration of one counted shake. */
+  uint16_t shakeCount() const { return shakeCount_; }
+  uint16_t shakeFinished() const { return shakeFinished_; }   /* counted shakes whose peak is final */
+  uint16_t shakePeak() const { return shakePeak_; }           /* peak of the last finished shake */
+  uint16_t shakeMaxPeak() const { return shakeMaxPeak_; }
+  uint16_t shakeMinPeak() const { return shakeFinished_ ? shakeMinPeak_ : 0; }
+  uint16_t shakeAvgPeak() const { return shakeFinished_ ? (uint16_t)(shakePeakSum_ / shakeFinished_) : 0; }
+  uint16_t shakeSoftMax() const { return shakeSoftMax_; }     /* highest magnitude that stayed below the high threshold */
+
 private:
   void sendCmd(uint8_t cmd, uint16_t data);
   uint16_t versionData() const;
@@ -114,6 +129,10 @@ private:
   void finish(uint8_t cmd, uint16_t data, uint32_t now);
   void handleGo(const GamePacket& pkt, uint16_t data, uint32_t rxMicros);
   void shakeTick(uint32_t now);
+  void shakeEndExcursion();
+  void shakeSoftEnd();
+  void shakeRoundEnd();
+  void shakeStatsClear();
   void reactionTick(uint32_t now);
 
   StickPorts& ports_;
@@ -158,7 +177,18 @@ private:
 
   /* shake */
   uint16_t shakeCount_;
-  bool shakeWasAbove_;
+  bool shakeArmed_;          /* true until a count; true again below SHAKE_LOW_LSB */
+  bool shakeGravInit_;
+  int32_t shakeGrav_[3];     /* gravity estimate, scaled by 1 << SHAKE_GRAVITY_SHIFT */
+  uint32_t shakeLastCountMs_;
+  uint32_t shakePeak2_;      /* squared peak of the running excursion */
+  uint16_t shakePeak_;
+  uint16_t shakeFinished_;
+  uint16_t shakeMaxPeak_;
+  uint16_t shakeMinPeak_;
+  uint32_t shakePeakSum_;
+  uint16_t shakeSoftMax_;
+  uint32_t shakeSoft2_;      /* squared top of the running sub-threshold bump */
   uint32_t shakeStartMs_;
   uint32_t lastAccelMs_;
   uint16_t shakeLastReported_;

@@ -71,6 +71,7 @@ HostGame::HostGame(HostPorts& ports)
       lastTargetIdx_(0xFF),
       modeBagIdx_(0),
       reactDelayMs_(0),
+      waitRng_(0),
       promptTimerStart_(0),
       soloTimeouts_(0),
       starting_(false),
@@ -593,6 +594,30 @@ void HostGame::startRound() {
 }
 
 /* ============================ GO and collect ============================ */
+
+/* Random stage lengths of the reaction wait: random weights scaled to the free time on top of
+ * the minimum, the rounding rest goes to the last stage. Own xorshift32, mixed with micros(). */
+void HostGame::planReactWait() {
+  waitRng_ ^= ports_.micros() * 2654435761u;
+  if (waitRng_ == 0) waitRng_ = 0x9E3779B9u;
+  uint32_t w[REACT_WAIT_STAGES];
+  uint32_t sum = 0;
+  for (uint8_t k = 0; k < REACT_WAIT_STAGES; k++) {
+    waitRng_ ^= waitRng_ << 13;
+    waitRng_ ^= waitRng_ >> 17;
+    waitRng_ ^= waitRng_ << 5;
+    w[k] = 1 + (waitRng_ >> 8) % 100;
+    w[k] *= w[k];   /* squared: uneven stages, a rhythm cannot be counted */
+    sum += w[k];
+  }
+  uint32_t free = reactDelayMs_ - (uint32_t)REACT_WAIT_STAGES * REACT_WAIT_STAGE_MIN_MS;
+  uint32_t end = 0;
+  for (uint8_t k = 0; k < REACT_WAIT_STAGES; k++) {
+    end += REACT_WAIT_STAGE_MIN_MS + free * w[k] / sum;
+    waitStageEndMs_[k] = (uint16_t)end;
+  }
+  waitStageEndMs_[REACT_WAIT_STAGES - 1] = reactDelayMs_;
+}
 
 void HostGame::fireGo() {
   goMicros_ = ports_.micros();
@@ -1147,6 +1172,15 @@ void HostGame::updateLeds() {
   leds_.flashUntilMs = flashUntilMs_;
   for (uint8_t i = 0; i < RTD_MAX_PLAYERS; i++) leds_.progress[i] = progress_[i];
   leds_.shakeStartMs = shakeStartMs_;
+  leds_.waitLit = 0;
+  if (phase_ == PH_REACT_WAIT) {
+    uint32_t elapsed = (uint32_t)(nowMs_ - phaseStart_);
+    uint8_t lit = REACT_WAIT_LEDS;
+    for (uint8_t k = 0; k < REACT_WAIT_STAGES; k++) {
+      if (elapsed >= waitStageEndMs_[k]) lit = (uint8_t)(lit - REACT_WAIT_LEDS / REACT_WAIT_STAGES);
+    }
+    leds_.waitLit = lit;
+  }
   if (phase_ == PH_GO) {
     leds_.limitStartMs = goMs_;
     leds_.limitMs = TIMEOUT_REACTION;
@@ -1243,7 +1277,8 @@ void HostGame::tick() {
       bool timeDone = elapsed >= (uint32_t)announceBaseMs_ + ANNOUNCE_SLACK_MS;
       if (!audioDone && !timeDone) break;
       if (mode_ == MODE_REACTION) {
-        leds_.neoMode = NEO_RANDOM_FAST;
+        leds_.neoMode = NEO_REACT_WAIT;
+        planReactWait();
         enterPhase(PH_REACT_WAIT);
       } else {
         countdown_ = 3;
