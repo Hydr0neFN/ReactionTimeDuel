@@ -2,7 +2,8 @@
 
 # Reaction Time Duel
 ## This project was selected for the Hanze Open Day showcase! Yipee!
-<img width="2048" height="1536" alt="IMG_2032" src="https://github.com/user-attachments/assets/0c61f458-73cb-4014-977f-d88b95b5550a" />
+<img width="600" height="800" alt="IMG_5491" src="https://github.com/user-attachments/assets/1e02c7fe-5259-4cc4-b624-4e4bc2f220d6" />
+
 
 Reaction Time Duel 2.0 is a competitive multiplayer reaction-time game built with ESP32 and ESP8266 microcontrollers, communicating wirelessly over ESP-NOW. Up to 4 players compete in two game modes, each with a custom wireless joystick, while an ESP32-S3 touch display shows the game and its settings.
 
