@@ -43,12 +43,12 @@
  * The MPU-6050 runs at +-8 g. The detector looks at the dynamic acceleration
  * (sample minus a slow gravity estimate), so it works in every direction. */
 #define SHAKE_LSB_PER_G         4096    /* +-8 g range */
-#define SHAKE_HIGH_LSB          (SHAKE_LSB_PER_G * 3 / 2)   /* 1.5 g: count on the rising crossing */
-#define SHAKE_LOW_LSB           (SHAKE_LSB_PER_G * 3 / 4)   /* 0.75 g: re-arm below this */
+#define SHAKE_HIGH_LSB          (SHAKE_LSB_PER_G * 3 / 2)   /* 1.5 g: a reversal counts above this */
+#define SHAKE_LOW_LSB           (SHAKE_LSB_PER_G * 3 / 4)   /* 0.75 g: noise floor of the soft-shake statistic */
 #define SHAKE_MIN_GAP_MS        40      /* minimum time between two counts */
 #define SHAKE_GRAVITY_SHIFT     6       /* gravity low-pass: 1/64 per 5 ms sample, ~320 ms */
 #define SHAKE_SAMPLE_MS         5       /* ~200 Hz */
-#define SHAKE_FACTOR            4       /* counts per host target unit (2 counts per shake cycle) */
+#define SHAKE_FACTOR            3       /* counts per host target unit (2 counts per back-and-forth, as in V4.0.2) */
 #define SHAKE_PROGRESS_STEPS    12      /* progress messages per ring */
 
 /*
@@ -177,7 +177,8 @@ private:
 
   /* shake */
   uint16_t shakeCount_;
-  bool shakeArmed_;          /* true until a count; true again below SHAKE_LOW_LSB */
+  bool shakeHaveRef_;        /* a shake was counted: shakeRef_ holds its direction */
+  int32_t shakeRef_[3];      /* dynamic vector at the peak of the last counted half shake */
   bool shakeGravInit_;
   int32_t shakeGrav_[3];     /* gravity estimate, scaled by 1 << SHAKE_GRAVITY_SHIFT */
   uint32_t shakeLastCountMs_;

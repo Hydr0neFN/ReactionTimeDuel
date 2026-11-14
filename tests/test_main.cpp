@@ -2128,9 +2128,9 @@ static void testT28() {
       CHECK(slot != 0);
       if (slot == 0) continue;
       CHECK(st.players[slot - 1].status == PS_DONE);
-      /* target x SHAKE_FACTOR counts at 2 per cycle: target x 2 cycles of 100 ms, the last count
-         comes 25 ms into the last half cycle */
-      int expect = target * (SHAKE_FACTOR / 2) * 100 - 25;
+      /* target x SHAKE_FACTOR counts at 2 per cycle of 100 ms (one per half cycle), the last
+         count comes 25 ms into the last half cycle */
+      int expect = target * SHAKE_FACTOR * 50 - 25;
       CHECK(idiff(st.players[slot - 1].time_ms, expect) <= 40);
       const StickLogic& sl = sim.stick(id);
       CHECK(sl.shakeCount() == target * SHAKE_FACTOR);
@@ -2141,6 +2141,34 @@ static void testT28() {
       CHECK(sl.shakeAvgPeak() <= sl.shakeMaxPeak());
       CHECK(sl.shakeMaxPeak() < 3 * SHAKE_LSB_PER_G * 2);
       CHECK(sl.shakeSoftMax() < SHAKE_HIGH_LSB);
+    }
+  }
+
+  /* hand-like shakes: a sine on X, Y, Z or the diagonal with a 1 g wobble that keeps the
+     magnitude above zero between the halves; still exactly 2 counts per back-and-forth */
+  {
+    Sim sim(2803);
+    startShakeGame(&sim, 4);
+    const uint32_t period = 160000;   /* 6 shakes per second */
+    for (uint8_t id = 1; id <= 4; id++) {
+      sim.setPlayer(id, PL_NONE, 0, period, (uint8_t)(id - 1));
+      sim.player[id].smooth = 1;
+      sim.player[id].noiseLsb = 300;
+    }
+    CHECK(waitJoined(sim, 0x0F, 5000));
+    CHECK(sim.runUntilPhase(PH_SHAKE, 20000));
+    int target = sim.host().state().shake_target;
+    CHECK(sim.runUntilPhase(PH_RESULTS, 40000));
+    const StatePacket& st = sim.host().state();
+    for (uint8_t id = 1; id <= 4; id++) {
+      uint8_t slot = slotOf(st, id);
+      CHECK(slot != 0);
+      if (slot == 0) continue;
+      CHECK(st.players[slot - 1].status == PS_DONE);
+      /* target x SHAKE_FACTOR half cycles of 80 ms; the count comes during the rise of the half */
+      int expect = target * SHAKE_FACTOR * 80;
+      CHECK(idiff(st.players[slot - 1].time_ms, expect) <= 80);
+      CHECK(sim.stick(id).shakeCount() == target * SHAKE_FACTOR);
     }
   }
 

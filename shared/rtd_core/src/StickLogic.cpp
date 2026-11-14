@@ -35,7 +35,7 @@ StickLogic::StickLogic(StickPorts& ports, uint8_t stickId)
       blankS1_(false),
       blankSampleMs_(0),
       shakeCount_(0),
-      shakeArmed_(true),
+      shakeHaveRef_(false),
       shakeGravInit_(false),
       shakeLastCountMs_(0),
       shakePeak2_(0),
@@ -86,7 +86,7 @@ void StickLogic::goIdle() {
   blankSampled_ = false;
   blankDone_ = false;
   shakeCount_ = 0;
-  shakeArmed_ = true;
+  shakeHaveRef_ = false;
   shakeGravInit_ = false;
 }
 
@@ -162,7 +162,7 @@ void StickLogic::handleGo(const GamePacket& pkt, uint16_t data, uint32_t rxMicro
   if (mode_ == MODE_SHAKE) {
     vibStart(GO_VIBRATE_MS);
     shakeCount_ = 0;
-    shakeArmed_ = true;
+    shakeHaveRef_ = false;
     shakeGravInit_ = false;
     shakeStatsClear();
     shakeLastReported_ = 0;
@@ -341,8 +341,7 @@ void StickLogic::shakeSoftEnd() {
 }
 
 void StickLogic::shakeRoundEnd() {
-  if (!shakeArmed_) shakeEndExcursion();
-  shakeSoftEnd();
+  if (shakeHaveRef_) shakeEndExcursion();
 }
 
 void StickLogic::shakeTick(uint32_t now) {
@@ -358,31 +357,43 @@ void StickLogic::shakeTick(uint32_t now) {
     shakeGravInit_ = true;
   }
   /* squared length of the dynamic vector; each axis clamped so the sum fits uint32_t */
+  int32_t d[3];
   uint32_t mag2 = 0;
   for (uint8_t i = 0; i < 3; i++) {
     int32_t g = shakeGrav_[i] / (1 << SHAKE_GRAVITY_SHIFT);
-    int32_t d = raw[i] - g;
-    shakeGrav_[i] += d;
-    if (d > 32767) d = 32767;
-    if (d < -32767) d = -32767;
-    mag2 += (uint32_t)(d * d);
+    d[i] = raw[i] - g;
+    shakeGrav_[i] += d[i];
+    if (d[i] > 32767) d[i] = 32767;
+    if (d[i] < -32767) d[i] = -32767;
+    mag2 += (uint32_t)(d[i] * d[i]);
   }
 
+  /* A shake is counted at each reversal: the dynamic vector points against the direction of the
+   * last counted half shake and is longer than SHAKE_HIGH_LSB. One back-and-forth = 2 counts,
+   * in any direction, also when the magnitude does not drop to zero between the two halves. */
   const uint32_t hi2 = (uint32_t)SHAKE_HIGH_LSB * SHAKE_HIGH_LSB;
   const uint32_t lo2 = (uint32_t)SHAKE_LOW_LSB * SHAKE_LOW_LSB;
-  if (!shakeArmed_) {
-    if (mag2 > shakePeak2_) shakePeak2_ = mag2;
-    if (mag2 < lo2) {
-      shakeArmed_ = true;
-      shakeEndExcursion();
+  int64_t dot = 0;
+  if (shakeHaveRef_) {
+    for (uint8_t i = 0; i < 3; i++) dot += (int64_t)d[i] * shakeRef_[i];
+  }
+  bool reversed = !shakeHaveRef_ || dot < 0;
+
+  if (!reversed) {
+    /* still the same half shake: follow its peak */
+    if (mag2 > shakePeak2_) {
+      shakePeak2_ = mag2;
+      for (uint8_t i = 0; i < 3; i++) shakeRef_[i] = d[i];
     }
+    /* a reversal that stayed too weak is over: remember how close it came */
+    if (mag2 >= lo2) shakeSoftEnd();
   } else if (mag2 <= hi2) {
-    /* a bump that stays below the high threshold: remember its top when it ends */
-    if (mag2 > shakeSoft2_) shakeSoft2_ = mag2;
-    if (mag2 < lo2) shakeSoftEnd();
-  } else if (mag2 > hi2 &&
-             (shakeCount_ == 0 || (uint32_t)(now - shakeLastCountMs_) >= SHAKE_MIN_GAP_MS)) {
-    shakeArmed_ = false;
+    if (mag2 >= lo2 && mag2 > shakeSoft2_) shakeSoft2_ = mag2;
+    if (!shakeHaveRef_ && mag2 < lo2) shakeSoftEnd();
+  } else if (shakeCount_ == 0 || (uint32_t)(now - shakeLastCountMs_) >= SHAKE_MIN_GAP_MS) {
+    if (shakeHaveRef_) shakeEndExcursion();
+    shakeHaveRef_ = true;
+    for (uint8_t i = 0; i < 3; i++) shakeRef_[i] = d[i];
     shakeLastCountMs_ = now;
     shakePeak2_ = mag2;
     shakeSoft2_ = 0;   /* the rising edge of a counted shake is not a soft shake */

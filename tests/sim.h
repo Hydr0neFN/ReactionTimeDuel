@@ -35,6 +35,8 @@ struct PlayerScript {
   uint32_t shakeLeadUs; /* the player starts shaking this long after the real GO */
   uint8_t  gravAxis;  /* axis that carries 1 g: 0 X, 1 Y, 2 Z */
   uint16_t noiseLsb;  /* amplitude of the sensor noise in LSB */
+  uint8_t  smooth;    /* 1: hand-like sine shake plus a 1 g wobble at twice the rate on the next axis,
+                         so the magnitude never drops near zero between the two halves */
 };
 
 #define SHAKE_AXIS_X     0

@@ -23,7 +23,7 @@ Reaction Time Duel 2.0 is a competitive multiplayer reaction-time game built wit
 Every player ring shows its player colour. The centre ring counts down in 4 stages (12, 9, 6, 3 lit LEDs) at uneven random intervals and is empty exactly at GO, so it shows that GO is coming but not when. When the rings turn yellow, press your button. The fastest reaction time wins the round. Press too early and you get a penalty.
 
 ### Shake Mode
-After a 3-2-1 countdown, shake your joystick in any direction to reach the target count (10, 15 or 20 shakes; one shake is one back-and-forth). A center ring countdown shows the remaining time. The first to finish wins.
+After a 3-2-1 countdown, shake your joystick in any direction to reach the target count (10, 15 or 20 shakes). A center ring countdown shows the remaining time. The first to finish wins.
 
 In Mixed mode (the default) the host alternates Reaction and Shake, starting with Reaction. Reaction only and Shake only are also available in the settings.
 
@@ -407,7 +407,7 @@ The PC must be on the `RTD-Host` network for `debug`.
 
 ## Protocol
 
-Firmware V4.0.3, protocol version 4. All devices use ESP-NOW on Wi-Fi channel 6 with power save off. The first byte selects the frame type.
+Firmware V4.0.4, protocol version 4. All devices use ESP-NOW on Wi-Fi channel 6 with power save off. The first byte selects the frame type.
 
 `GamePacket`, 7 bytes, first byte `0x0A`:
 

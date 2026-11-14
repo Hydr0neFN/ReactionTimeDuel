@@ -1,6 +1,6 @@
 # Reaction Time Duel 2.0 — Design (normative)
 
-This document is the contract for the 2.0 rework. Firmware version `V4.0.3`, protocol version 4.
+This document is the contract for the 2.0 rework. Firmware version `V4.0.4`, protocol version 4.
 The baseline (the code that worked at the Hanze open day) is git commit `cc638ad`.
 Rule for every job: keep the baseline game rules, timings, LED and audio behaviour unless a section here changes it.
 
@@ -205,8 +205,8 @@ Changes against the baseline:
 - **J4** Shake detection works in every direction (V4.0.3). The old code summed the three axes (`|ax + ay + az| > 67152`) at the default +-2 g range: one axis saturates at 32767, so a shake along one axis never counted and axes with opposite signs cancelled. Now:
   - `mpuInit()` sets the MPU-6050 to +-8 g (`ACCEL_CONFIG` 0x10, 4096 LSB per g) and the low-pass filter to 44 Hz (`CONFIG` 3), which removes the buzz of the vibration motor but passes shakes.
   - The sampling stays 200 Hz (every 5 ms). The stick keeps a gravity estimate per axis (integer low-pass, 1/64 per sample, time constant about 320 ms, started from the first sample after GO). The dynamic vector is the sample minus the gravity. Its squared length (each axis clamped to +-32767, sum in `uint32_t`, no float) is compared with the squared thresholds.
-  - One count on the rising crossing of `SHAKE_HIGH_LSB` (1.5 g). The detector re-arms when the length falls below `SHAKE_LOW_LSB` (0.75 g) and only counts again after `SHAKE_MIN_GAP_MS` (40 ms).
-  - A back-and-forth shake makes two counts (one per reversal). `SHAKE_FACTOR` is 4: the host targets 10 / 15 / 20 mean 40 / 60 / 80 counts, that is 20 / 30 / 40 full cycles. The progress frame `(milestone << 8) | target` stays below 256 (largest 80), and the host percentage `milestone x 100 / target` is unchanged.
+  - One count per reversal (V4.0.4): the dynamic vector must point against the direction of the last counted half shake (negative dot product) and be longer than `SHAKE_HIGH_LSB` (1.5 g), and `SHAKE_MIN_GAP_MS` (40 ms) must have passed. While the vector keeps the same direction, the detector follows the peak and stores its direction. V4.0.3 counted rising crossings with a re-arm below 0.75 g; on real hand shakes the length often stayed above 0.75 g between the two halves, so two halves merged into one count. `SHAKE_LOW_LSB` (0.75 g) is now only the noise floor of the soft-shake statistic.
+  - A back-and-forth shake makes two counts. `SHAKE_FACTOR` is 3, as in V4.0.2: the host targets 10 / 15 / 20 mean 30 / 45 / 60 counts, that is 15 / 22.5 / 30 full cycles. The progress frame `(milestone << 8) | target` stays below 256, and the host percentage `milestone x 100 / target` is unchanged.
   - Calibration values of the last shake round stay in `StickLogic` until the next shake GO and go to the host as `CMD_DIAG` keys (section 11.1). A "peak" is the highest dynamic length of one counted shake.
 - **J5** Stick ID at run time (one binary for all four sticks, needed for OTA). Order: EEPROM record (magic + ID) -> MAC table in `RtdNetConfig.h` -> none. A build with `-DMY_ID=n` (env `stick1..stick4`) writes the EEPROM record on boot when it differs. Env `stick` (no `MY_ID`) is the OTA image. A stick without an ID does not join; it pulses the motor 3 times at boot.
 - **J6** Radio: `WIFI_NONE_SLEEP`, maximum TX power.
@@ -555,7 +555,7 @@ The host sends nothing before the first request. A lost request costs nothing: t
 #define FW_VERSION_MAJOR  4
 #define FW_VERSION_MINOR  0
 #define FW_VERSION_PATCH  1
-#define FW_VERSION_STRING "V4.0.3"
+#define FW_VERSION_STRING "V4.0.4"
 #define FW_VERSION_BYTE   ((uint8_t)((FW_VERSION_MAJOR << 4) | FW_VERSION_MINOR))
 #define PROTO_VERSION     4
 

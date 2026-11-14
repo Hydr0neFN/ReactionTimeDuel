@@ -1,6 +1,7 @@
 #include "sim.h"
 
 #include <string.h>
+#include <math.h>
 
 /* ------------------------------------------------------------------ */
 /* sound lengths, roughly the MP3 lengths of firmware/host/data        */
@@ -358,6 +359,11 @@ bool Sim::readAccel(uint8_t id, int16_t& ax, int16_t& ay, int16_t& az) {
     t -= p.shakeLeadUs;
     uint32_t beat = (uint32_t)((t % period) * 4u / period);
     int32_t amp = beat == 1 ? 12288 : (beat == 3 ? -12288 : 0);
+    if (p.smooth) {
+      double ph = 2.0 * 3.14159265358979 * (double)(t % period) / (double)period;
+      amp = (int32_t)(12288.0 * sin(ph));
+      a[(p.shakeAxis + 1) % 3] += (int32_t)(4096.0 * cos(2.0 * ph));
+    }
     if (p.shakeAxis == SHAKE_AXIS_DIAG) {
       a[0] += amp * 7 / 12;   /* ~ amp / sqrt(3) per axis, same total length */
       a[1] -= amp * 7 / 12;
