@@ -35,6 +35,7 @@ static lv_obj_t *s_pulse, *s_flash, *s_round, *s_newrec, *s_final;
 static lv_obj_t *s_score[RTD_MAX_PLAYERS], *s_rank[RTD_MAX_PLAYERS], *s_gain[RTD_MAX_PLAYERS];
 static lv_obj_t *s_name[RTD_MAX_PLAYERS], *s_dash[RTD_MAX_PLAYERS];
 static lv_obj_t *s_bonus;
+static lv_obj_t *s_winbox; /* frame of the WINNER box, in the colour of the winner's stick */
 static bool s_bonus_on;
 static lv_obj_t *s_confetti[kConfetti];
 static bool s_confetti_on;
@@ -209,6 +210,13 @@ static void countdown_anim(uint8_t n)
     th_anim(ui_labelCountDown, th_set_text_opa, 0, 255, 200, false, lv_anim_path_ease_out);
 }
 
+/* The winner is shown (round scores or final): only the winner keeps colour, every other player turns grey. */
+static bool winner_shown(const StatePacket &st)
+{
+    return (st.phase == PH_FINAL || (st.phase == PH_RESULTS && (st.flags & STF_SCORES))) && st.winner >= 1 &&
+           st.winner <= RTD_MAX_PLAYERS;
+}
+
 /* ---- centre area ---- */
 
 static void deuce_timer_cb(lv_timer_t *)
@@ -234,8 +242,7 @@ static void apply_center(const StatePacket &st)
 
     bool circle = ph == PH_JOIN || ph == PH_ANNOUNCE || ph == PH_COUNTDOWN || ph == PH_REACT_WAIT ||
                   ph == PH_GO || ph == PH_SHAKE;
-    bool show_win = (ph == PH_FINAL || (ph == PH_RESULTS && (st.flags & STF_SCORES))) && st.winner >= 1 &&
-                    st.winner <= RTD_MAX_PLAYERS;
+    bool show_win = winner_shown(st);
 
     vis(ui_centerCircle, circle);
     vis(s_pulse, ph == PH_REACT_WAIT);
@@ -248,6 +255,7 @@ static void apply_center(const StatePacket &st)
     vis(ui_imgGo, ph == PH_GO);
     vis(ui_labelCountDown, ph == PH_COUNTDOWN);
     vis(ui_imgWinner, show_win);
+    vis(s_winbox, show_win);
     vis(ui_labelWinnerNum, show_win);
     vis(s_final, ph == PH_FINAL);
     blink(s_newrec, ph == PH_RESULTS && (st.flags & STF_NEW_RECORD));
@@ -262,6 +270,10 @@ static void apply_center(const StatePacket &st)
         char b[16];
         snprintf(b, sizeof(b), "PLAYER %u", (unsigned)st.winner);
         txt(ui_labelWinnerNum, b);
+        lv_color_t wc = th_stick(st.players[st.winner - 1].stick_id);
+        if (lv_obj_get_style_border_color(s_winbox, LV_PART_MAIN).full != wc.full) {
+            lv_obj_set_style_border_color(s_winbox, wc, 0);
+        }
     }
 }
 
@@ -281,10 +293,13 @@ static void apply_player(int i, const StatePacket &st)
     bool newly = joined && !((s_prev.joined >> i) & 1) && s_prev.valid;
     bool in_round = (st.active_mask >> i) & 1;
     bool prompted = ph == PH_JOIN && !joined && st.prompt_slot == i + 1;
+    bool loser = winner_shown(st) && st.winner != i + 1; /* grey while the winner is shown */
 
     /* ring colour */
     lv_color_t ring = th_color(TH_BG);
-    if (joined) {
+    if (loser) {
+        ring = th_color(kRingOff);
+    } else if (joined) {
         ring = th_stick(p.stick_id);
     } else if (ph == PH_JOIN) {
         ring = th_color(prompted ? TH_GREEN : TH_RED);
@@ -300,7 +315,7 @@ static void apply_player(int i, const StatePacket &st)
 
     bool dim = !joined || (ph != PH_JOIN && ph != PH_IDLE && ph != PH_FINAL && !in_round);
     lv_obj_set_style_img_opa(s_pimg[i], dim ? LV_OPA_30 : LV_OPA_COVER, 0);
-    tcol(s_name[i], dim ? TH_TEXT2 : TH_TEXT);
+    tcol(s_name[i], (dim || loser) ? TH_TEXT2 : TH_TEXT);
 
     /* result text */
     char b[40];
@@ -314,6 +329,7 @@ static void apply_player(int i, const StatePacket &st)
         snprintf(b, sizeof(b), "FOUL");
         col = TH_RED;
     }
+    if (loser) col = TH_TEXT2;
     lv_obj_set_style_text_color(s_time[i], th_color(col), 0);
     txt(s_time[i], b);
     vis(s_time[i], b[0] != 0);
@@ -337,6 +353,7 @@ static void apply_scores(const StatePacket &st)
     uint8_t ph = st.phase;
     bool show = scores_shown(st);
     bool results = ph == PH_RESULTS && (st.flags & STF_SCORES);
+    bool win_show = winner_shown(st);
     uint8_t top = 0;
     for (int i = 0; i < RTD_MAX_PLAYERS; i++) {
         if (st.players[i].stick_id && st.players[i].score > top) top = st.players[i].score;
@@ -346,7 +363,8 @@ static void apply_scores(const StatePacket &st)
         const PlayerState &p = st.players[i];
         bool joined = p.stick_id != 0;
         bool on = show && joined;
-        bool lead = on && top > 0 && p.score == top;
+        /* while the winner is shown only the winner is highlighted: no leader tag */
+        bool lead = on && !win_show && top > 0 && p.score == top;
         vis(s_pimg[i], !show);
         vis(s_name[i], show);
         vis(s_dash[i], show && !joined);
@@ -358,6 +376,7 @@ static void apply_scores(const StatePacket &st)
         snprintf(b, sizeof(b), "%u", (unsigned)p.score);
         bool grew = s_prev.valid && results && p.score > s_prev.score[i];
         tfont(s_score[i], p.score > 99 ? TH_FONT40 : TH_FONT64);
+        tcol(s_score[i], (win_show && st.winner != i + 1) ? TH_TEXT2 : TH_TEXT);
         txt(s_score[i], b);
         if (grew) score_gain(i, (unsigned)(p.score - s_prev.score[i]));
     }
@@ -464,6 +483,12 @@ lv_obj_t *screen_game_init()
         s_time[i] = times[i];
         lv_obj_set_style_text_font(s_time[i], TH_FONT28, 0);
         lv_obj_set_style_text_align(s_time[i], LV_TEXT_ALIGN_CENTER, 0);
+        /* The time of rings 2 and 3 crosses the edge of the centre circle while GO still shows:
+         * a background chip in the screen colour keeps the text readable over the circle. */
+        lv_obj_set_style_bg_color(s_time[i], th_color(TH_BG), 0);
+        lv_obj_set_style_bg_opa(s_time[i], LV_OPA_COVER, 0);
+        lv_obj_set_style_pad_hor(s_time[i], 8, 0);
+        lv_obj_set_style_radius(s_time[i], 8, 0);
 
         lv_obj_t *a = lv_arc_create(scr);
         lv_obj_set_size(a, 166, 166);
@@ -536,9 +561,18 @@ lv_obj_t *screen_game_init()
     lv_obj_add_flag(s_bonus, LV_OBJ_FLAG_HIDDEN);
 
     /* Winner: the V1 box with "WINNER" centred in it (the V1 image had the word 6 px left of centre and "PLAYER"
-     * drawn in), same size and top edge as V1. "PLAYER n" below is one centred label, so any digit lines up. */
-    lv_img_set_src(ui_imgWinner, &ui_img_winner_box);
+     * drawn in), same size and top edge as V1. The image holds only the word; the frame (V1 geometry: 423x116,
+     * 6 px, inside the 431x119 image) is drawn here in the colour of the winner's stick (apply_center).
+     * "PLAYER n" below is one centred label, so any digit lines up. */
+    lv_img_set_src(ui_imgWinner, &ui_img_winner_text);
     lv_obj_align(ui_imgWinner, LV_ALIGN_CENTER, 1, 62);
+    s_winbox = th_box(scr, 423, 116);
+    lv_obj_align(s_winbox, LV_ALIGN_CENTER, 1, 63);
+    lv_obj_set_style_radius(s_winbox, 18, 0);
+    lv_obj_set_style_border_width(s_winbox, 6, 0);
+    lv_obj_set_style_border_color(s_winbox, th_color(TH_GREEN_WIN), 0);
+    lv_obj_clear_flag(s_winbox, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(s_winbox, LV_OBJ_FLAG_HIDDEN);
     lv_obj_align(ui_labelWinnerNum, LV_ALIGN_CENTER, 0, 176);
     lv_label_set_text(ui_labelWinnerNum, "PLAYER 1");
 

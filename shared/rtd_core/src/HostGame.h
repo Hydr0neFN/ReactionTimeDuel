@@ -249,6 +249,7 @@ private:
   uint8_t topScore() const;
   uint8_t topScoreCount() const;
   void ringForSlot(uint8_t slot, uint32_t color, bool blink);
+  void showWinnerRings(uint8_t winner);
 
   void claimSlot(uint8_t stickId);
   void startGame();

@@ -38,7 +38,7 @@ LV_IMG_DECLARE( ui_img_img_shakemode_png);   // assets/img/shakeMode.png
 LV_IMG_DECLARE( ui_img_img_deucemode_png);   // assets/img/deuceMode.png
 LV_IMG_DECLARE( ui_img_hanze_logo);   // assets/hanze_logo.png (tools/png2lvgl.py)
 LV_IMG_DECLARE( ui_img_project_page);   // assets/project_page_vertical.png (tools/png2lvgl.py)
-LV_IMG_DECLARE( ui_img_winner_box);   // assets/winner_box.png (V1 winner box, text centred; tools/png2lvgl.py)
+LV_IMG_DECLARE( ui_img_winner_text);   // assets/winner_text.png (V1 "WINNER" text, centred, no frame; tools/png2lvgl.py)
 LV_IMG_DECLARE( ui_img_icon_link_on);   // assets/icon_link_on.png
 LV_IMG_DECLARE( ui_img_icon_link_off);   // assets/icon_link_off.png
 LV_IMG_DECLARE( ui_img_icon_gear);   // assets/icon_gear.png

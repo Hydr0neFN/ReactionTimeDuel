@@ -4,6 +4,7 @@
 
 /* Baseline ring mapping: player order left to right is P1=ring4, P2=ring3, P3=ring1, P4=ring0. */
 static const uint8_t PLAYER_TO_RING[RTD_MAX_PLAYERS] = {4, 3, 1, 0};
+static const uint8_t CENTER_RING_IDX = 2;   /* firmware/host/src/Board.h CENTER_RING */
 
 static uint8_t playerToRing(uint8_t player) {
   return PLAYER_TO_RING[player & 0x03];
@@ -303,6 +304,19 @@ void HostGame::ringForSlot(uint8_t slot, uint32_t color, bool blink) {
   leds_.ringBlink[ring] = blink;
 }
 
+/* Winner shown (round scores or final): only the winner's ring and the centre ring are lit, in the colour of the
+ * winner's stick, so the LEDs match the display. All other rings are off. */
+void HostGame::showWinnerRings(uint8_t winner) {
+  uint32_t color = stickColor(slotStick_[(winner - 1) & 0x03]);
+  for (uint8_t r = 0; r < 5; r++) {
+    leds_.ringColor[r] = RTD_RGB_OFF;
+    leds_.ringBlink[r] = false;
+  }
+  ringForSlot((uint8_t)(winner - 1), color, false);
+  leds_.ringColor[CENTER_RING_IDX] = color;
+  leds_.neoMode = NEO_STATUS;
+}
+
 uint32_t HostGame::msUntilGo() const {
   uint32_t elapsed = (uint32_t)(nowMs_ - phaseStart_);
   if (phase_ == PH_REACT_WAIT) {
@@ -411,6 +425,7 @@ void HostGame::enterPhase(uint8_t phase) {
         leds_.ringBlink[r] = false;
       }
       if (winner_ != 0) {
+        showWinnerRings(winner_);
         ports_.audioPlay(playerSound(winner_));
         ports_.audioPlay(SND_WINS);
         ports_.audioPlay(SND_VICTORY_FANFARE);
@@ -708,6 +723,7 @@ void HostGame::showScores() {
   }
 
   if (winner != 0) {
+    showWinnerRings(winner);
     ports_.audioPlay(playerSound(winner));
     ports_.audioPlay(SND_FASTEST);
     finalizeRoundRecords((uint8_t)(winner - 1));
