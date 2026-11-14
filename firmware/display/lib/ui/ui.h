@@ -37,6 +37,7 @@ LV_IMG_DECLARE( ui_img_img_reactmode_png);   // assets/img/reactMode.png
 LV_IMG_DECLARE( ui_img_img_shakemode_png);   // assets/img/shakeMode.png
 LV_IMG_DECLARE( ui_img_img_deucemode_png);   // assets/img/deuceMode.png
 LV_IMG_DECLARE( ui_img_hanze_logo);   // assets/hanze_logo.png (tools/png2lvgl.py)
+LV_IMG_DECLARE( ui_img_project_page);   // assets/project_page_vertical.png (tools/png2lvgl.py)
 LV_IMG_DECLARE( ui_img_icon_link_on);   // assets/icon_link_on.png
 LV_IMG_DECLARE( ui_img_icon_link_off);   // assets/icon_link_off.png
 LV_IMG_DECLARE( ui_img_icon_gear);   // assets/icon_gear.png

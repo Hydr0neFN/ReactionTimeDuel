@@ -150,14 +150,11 @@ lv_obj_t *screen_idle_init()
     lv_obj_set_style_border_color(qr, lv_color_white(), 0);
     lv_obj_set_style_border_width(qr, 4, 0);
     lv_obj_align(qr, LV_ALIGN_BOTTOM_LEFT, 36, -14);
-    /* Caption on the left side of the QR code, turned 90 deg so it reads bottom to top. */
-    lv_obj_t *qt = th_label(s_scr, &lv_font_montserrat_16, TH_TEXT2, "Project Page");
-    lv_obj_update_layout(qt);
-    lv_coord_t qw = lv_obj_get_width(qt), qh = lv_obj_get_height(qt);
-    lv_obj_set_style_transform_pivot_x(qt, qw / 2, 0);
-    lv_obj_set_style_transform_pivot_y(qt, qh / 2, 0);
-    lv_obj_set_style_transform_angle(qt, 2700, 0);
-    lv_obj_align_to(qt, qr, LV_ALIGN_OUT_LEFT_MID, (lv_coord_t)((qw - qh) / 2 - 2), 0);
+    /* Caption on the left side of the QR code, reading bottom to top. A pre-rendered image:
+     * transform_angle on a label draws nothing with this panel's direct mode. */
+    lv_obj_t *qt = lv_img_create(s_scr);
+    lv_img_set_src(qt, &ui_img_project_page);
+    lv_obj_align_to(qt, qr, LV_ALIGN_OUT_LEFT_MID, -2, 0);
 
     lv_obj_t *credit = th_label(s_scr, &lv_font_montserrat_16, TH_TEXT2,
                                 "Made with love by Dogari A. and Juan Y.");

@@ -15,6 +15,7 @@ SET(SOURCES screens/ui_MainScreen.c
     images/ui_img_img_shakemode_png.c
     images/ui_img_img_deucemode_png.c
     images/ui_img_hanze_logo.c
+    images/ui_img_project_page.c
     images/ui_img_icon_link_on.c
     images/ui_img_icon_link_off.c
     images/ui_img_icon_gear.c
