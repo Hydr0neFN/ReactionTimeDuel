@@ -413,7 +413,7 @@ static void refresh_update(const StatePacket &st)
     if (lv_bar_get_value(s_bar) != pct) lv_bar_set_value(s_bar, pct, LV_ANIM_OFF);
 
     put(s_lbl_mode, maint ? "LEAVE UPDATE MODE" : "START UPDATE MODE");
-    enable(s_btn_mode, maint || st.phase == PH_IDLE);
+    enable(s_btn_mode, (maint && st.ota_state != OTA_STICKS) || st.phase == PH_IDLE);
     enable(s_btn_sticks, (st.flags & STF_UPDATE_AVAILABLE) != 0);
 }
 
